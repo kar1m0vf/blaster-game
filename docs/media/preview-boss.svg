@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1433" />
+      <stop offset="100%" stop-color="#050815" />
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)" />
+  <rect x="320" y="10" width="320" height="16" rx="8" fill="#2b213c" />
+  <rect x="324" y="14" width="250" height="8" rx="4" fill="#e05f78" />
+  <text x="438" y="46" fill="#ffe4ea" font-family="Segoe UI, Arial" font-size="20">Boss HP 65/90</text>
+  <polygon points="330,180 388,108 572,108 630,180 572,252 388,252" fill="#7a3ed2" stroke="#e3b6ff" stroke-width="4" />
+  <rect x="452" y="162" width="56" height="34" rx="8" fill="#ffcd79" />
+  <circle cx="370" cy="180" r="14" fill="#4ce2ff" />
+  <circle cx="590" cy="180" r="14" fill="#4ce2ff" />
+  <text x="480" y="330" text-anchor="middle" fill="#ffd4a6" font-family="Segoe UI, Arial" font-size="38">BOSS WAVE</text>
+  <polygon points="430,482 470,442 530,442 570,482 530,522 470,522" fill="#2c7cdf" stroke="#9ec7ff" stroke-width="3" />
+</svg>

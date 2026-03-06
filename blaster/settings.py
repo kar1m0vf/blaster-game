@@ -1,0 +1,149 @@
+WIDTH, HEIGHT = 800, 600
+FPS = 60
+FPS_OPTIONS = (30, 45, 60, 75, 90, 120)
+SHOW_FPS = True
+PLAYER_SPEED = 5
+BULLET_SPEED = 9
+ENEMY_SPEED_MIN = 1.0
+ENEMY_SPEED_MAX = 3.0
+ENEMY_SPAWN_TIME = 800
+MAX_ENEMIES = 10
+
+DIFFICULTY = 'Normal'
+DIFFICULTY_PRESETS = {
+    'Easy': {
+        'ENEMY_SPEED_MIN': 0.6,
+        'ENEMY_SPEED_MAX': 1.5,
+        'ENEMY_SPAWN_TIME': 1200,
+        'MAX_ENEMIES': 6,
+        'BULLET_SPEED': 10,
+        'PLAYER_SPEED': 6,
+    },
+    'Normal': {
+        'ENEMY_SPEED_MIN': 1.0,
+        'ENEMY_SPEED_MAX': 3.0,
+        'ENEMY_SPAWN_TIME': 800,
+        'MAX_ENEMIES': 10,
+        'BULLET_SPEED': 9,
+        'PLAYER_SPEED': 5,
+    },
+    'Hard': {
+        'ENEMY_SPEED_MIN': 1.8,
+        'ENEMY_SPEED_MAX': 4.2,
+        'ENEMY_SPAWN_TIME': 500,
+        'MAX_ENEMIES': 14,
+        'BULLET_SPEED': 8,
+        'PLAYER_SPEED': 5,
+    },
+}
+
+
+VISUAL_QUALITY = 'Balanced'
+VISUAL_PRESETS = {
+    'Performance': {
+        'STAR_COUNT': 36,
+        'NEBULA_COUNT': 2,
+        'BULLET_TRAIL_LENGTH': 0,
+        'ENABLE_SCREEN_SHAKE': False,
+        'ENABLE_SCANLINES': False,
+        'ENABLE_VIGNETTE': False,
+        'ENABLE_STAR_GLOW': False,
+        'BACKGROUND_PARTICLE_COUNT': 0,
+        'NEBULA_DRIFT_AMPLITUDE': 0,
+    },
+    'Balanced': {
+        'STAR_COUNT': 64,
+        'NEBULA_COUNT': 3,
+        'BULLET_TRAIL_LENGTH': 3,
+        'ENABLE_SCREEN_SHAKE': True,
+        'ENABLE_SCANLINES': False,
+        'ENABLE_VIGNETTE': False,
+        'ENABLE_STAR_GLOW': True,
+        'BACKGROUND_PARTICLE_COUNT': 12,
+        'NEBULA_DRIFT_AMPLITUDE': 4,
+    },
+    'Cinematic': {
+        'STAR_COUNT': 92,
+        'NEBULA_COUNT': 5,
+        'BULLET_TRAIL_LENGTH': 5,
+        'ENABLE_SCREEN_SHAKE': True,
+        'ENABLE_SCANLINES': True,
+        'ENABLE_VIGNETTE': True,
+        'ENABLE_STAR_GLOW': True,
+        'BACKGROUND_PARTICLE_COUNT': 26,
+        'NEBULA_DRIFT_AMPLITUDE': 6,
+    },
+    'Enhanced': {
+        'STAR_COUNT': 116,
+        'NEBULA_COUNT': 6,
+        'BULLET_TRAIL_LENGTH': 6,
+        'ENABLE_SCREEN_SHAKE': True,
+        'ENABLE_SCANLINES': True,
+        'ENABLE_VIGNETTE': True,
+        'ENABLE_STAR_GLOW': True,
+        'BACKGROUND_PARTICLE_COUNT': 40,
+        'NEBULA_DRIFT_AMPLITUDE': 8,
+    },
+}
+
+STAR_COUNT = VISUAL_PRESETS[VISUAL_QUALITY]['STAR_COUNT']
+NEBULA_COUNT = VISUAL_PRESETS[VISUAL_QUALITY]['NEBULA_COUNT']
+BULLET_TRAIL_LENGTH = VISUAL_PRESETS[VISUAL_QUALITY]['BULLET_TRAIL_LENGTH']
+ENABLE_SCREEN_SHAKE = VISUAL_PRESETS[VISUAL_QUALITY]['ENABLE_SCREEN_SHAKE']
+ENABLE_SCANLINES = VISUAL_PRESETS[VISUAL_QUALITY]['ENABLE_SCANLINES']
+ENABLE_VIGNETTE = VISUAL_PRESETS[VISUAL_QUALITY]['ENABLE_VIGNETTE']
+ENABLE_STAR_GLOW = VISUAL_PRESETS[VISUAL_QUALITY]['ENABLE_STAR_GLOW']
+BACKGROUND_PARTICLE_COUNT = VISUAL_PRESETS[VISUAL_QUALITY]['BACKGROUND_PARTICLE_COUNT']
+NEBULA_DRIFT_AMPLITUDE = VISUAL_PRESETS[VISUAL_QUALITY]['NEBULA_DRIFT_AMPLITUDE']
+
+
+def set_difficulty(level):
+    global DIFFICULTY, ENEMY_SPEED_MIN, ENEMY_SPEED_MAX, ENEMY_SPAWN_TIME, MAX_ENEMIES, BULLET_SPEED, PLAYER_SPEED
+    if level not in DIFFICULTY_PRESETS:
+        return False
+    DIFFICULTY = level
+    p = DIFFICULTY_PRESETS[level]
+    ENEMY_SPEED_MIN = p['ENEMY_SPEED_MIN']
+    ENEMY_SPEED_MAX = p['ENEMY_SPEED_MAX']
+    ENEMY_SPAWN_TIME = p['ENEMY_SPAWN_TIME']
+    MAX_ENEMIES = p['MAX_ENEMIES']
+    BULLET_SPEED = p['BULLET_SPEED']
+    PLAYER_SPEED = p['PLAYER_SPEED']
+    return True
+
+
+def set_visual_quality(level):
+    global VISUAL_QUALITY, STAR_COUNT, NEBULA_COUNT, BULLET_TRAIL_LENGTH, ENABLE_SCREEN_SHAKE, ENABLE_SCANLINES
+    global ENABLE_VIGNETTE, ENABLE_STAR_GLOW, BACKGROUND_PARTICLE_COUNT, NEBULA_DRIFT_AMPLITUDE
+    if level not in VISUAL_PRESETS:
+        return False
+    VISUAL_QUALITY = level
+    preset = VISUAL_PRESETS[level]
+    STAR_COUNT = preset['STAR_COUNT']
+    NEBULA_COUNT = preset['NEBULA_COUNT']
+    BULLET_TRAIL_LENGTH = preset['BULLET_TRAIL_LENGTH']
+    ENABLE_SCREEN_SHAKE = preset['ENABLE_SCREEN_SHAKE']
+    ENABLE_SCANLINES = preset['ENABLE_SCANLINES']
+    ENABLE_VIGNETTE = preset['ENABLE_VIGNETTE']
+    ENABLE_STAR_GLOW = preset['ENABLE_STAR_GLOW']
+    BACKGROUND_PARTICLE_COUNT = preset['BACKGROUND_PARTICLE_COUNT']
+    NEBULA_DRIFT_AMPLITUDE = preset['NEBULA_DRIFT_AMPLITUDE']
+    return True
+
+
+def set_fps_cap(value):
+    global FPS
+    try:
+        cap = int(value)
+    except (TypeError, ValueError):
+        return False
+    if cap not in FPS_OPTIONS:
+        return False
+    FPS = cap
+    return True
+
+
+def set_show_fps(value):
+    global SHOW_FPS
+    SHOW_FPS = bool(value)
+    return True

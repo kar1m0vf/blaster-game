@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+blaster_shot.wav
+blaster_explosion.wav
+blaster_hit.wav
+blaster_gameover.wav
+data/highscores.json
+.DS_Store
+build/
+dist/
+release/
+*.spec
+.pytest_cache/

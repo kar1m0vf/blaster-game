@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a1230" />
+      <stop offset="100%" stop-color="#020611" />
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)" />
+  <rect x="240" y="70" width="480" height="400" rx="16" fill="#0b1631" fill-opacity="0.9" stroke="#6b9be6" stroke-width="3" />
+  <text x="480" y="135" text-anchor="middle" fill="#e9f1ff" font-family="Segoe UI, Arial" font-size="48">BLASTER</text>
+  <text x="480" y="175" text-anchor="middle" fill="#a7bde3" font-family="Segoe UI, Arial" font-size="20">Menu Preview</text>
+  <g font-family="Segoe UI, Arial" font-size="28">
+    <rect x="300" y="220" width="360" height="52" rx="10" fill="#2d5cab" stroke="#93bfff" />
+    <text x="480" y="255" text-anchor="middle" fill="#fff2d2">Start Game</text>
+    <rect x="300" y="286" width="360" height="52" rx="10" fill="#1a2d56" stroke="#6f8fc3" />
+    <text x="480" y="321" text-anchor="middle" fill="#d1dff5">Options</text>
+    <rect x="300" y="352" width="360" height="52" rx="10" fill="#1a2d56" stroke="#6f8fc3" />
+    <text x="480" y="387" text-anchor="middle" fill="#d1dff5">High Scores</text>
+  </g>
+</svg>

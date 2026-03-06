@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a142f" />
+      <stop offset="100%" stop-color="#020710" />
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)" />
+  <rect x="12" y="12" width="260" height="88" rx="10" fill="#0c1735" fill-opacity="0.8" stroke="#5f89ce" />
+  <text x="26" y="44" fill="#e9f1ff" font-family="Segoe UI, Arial" font-size="24">Score: 1240</text>
+  <text x="26" y="76" fill="#ffdede" font-family="Segoe UI, Arial" font-size="24">Lives: 2</text>
+  <text x="26" y="522" fill="#a7bde3" font-family="Segoe UI, Arial" font-size="20">Wave 5  Kills 9/12</text>
+  <polygon points="430,470 470,430 530,430 570,470 530,510 470,510" fill="#2c7cdf" stroke="#9ec7ff" stroke-width="3" />
+  <circle cx="758" cy="150" r="24" fill="#dc4756" stroke="#ffb1b8" stroke-width="3" />
+  <circle cx="700" cy="230" r="20" fill="#9a73d9" stroke="#dbc4ff" stroke-width="2" />
+  <rect x="478" y="344" width="4" height="86" fill="#95d8ff" />
+  <rect x="482" y="320" width="4" height="110" fill="#dff5ff" />
+</svg>
