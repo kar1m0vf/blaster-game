@@ -144,6 +144,34 @@ def test_enemy_elite_sniper_shoots_enemy_bullet():
     assert getattr(bullet, "from_enemy", False) is True
 
 
+def test_enemy_depth_entry_scales_then_returns_to_normal():
+    enemy = Enemy(etype="orb")
+    base_width = enemy._frames[enemy._frame_idx].get_width()
+
+    enemy.enter_depth_lane(lane=-1, wave=4, now=10_000)
+    far_width = enemy.image.get_width()
+    assert enemy.depth_intro_active is True
+    assert enemy.is_targetable() is False
+    assert far_width < base_width
+
+    enemy._depth_started_at = pygame.time.get_ticks() - enemy._depth_duration_ms // 2
+    enemy.update(16)
+    assert enemy.image.get_width() > far_width
+    assert enemy.is_targetable() is True
+    assert enemy._depth_ready_flash_until > pygame.time.get_ticks()
+
+    enemy._depth_started_at = pygame.time.get_ticks() - int(enemy._depth_duration_ms * 0.20)
+    enemy._depth_ready_announced = False
+    enemy._depth_ready_flash_until = 0
+    enemy.update(16)
+    assert enemy.is_targetable() is False
+
+    enemy._depth_started_at = pygame.time.get_ticks() - enemy._depth_duration_ms - 1
+    enemy.update(16)
+    assert enemy.depth_intro_active is False
+    assert enemy.image.get_width() == base_width
+
+
 def test_shooter_enemy_settles_and_shoots():
     shooter = ShooterEnemy(wave=3, start_x=120, target_y=80)
     bullets = pygame.sprite.Group()

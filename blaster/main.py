@@ -350,9 +350,12 @@ class Game:
 
     def _recompute_wave_params(self):
         wave_idx = max(0, self.wave - 1)
-        self.wave_target_kills = 8 + self.wave * 4
-        self.current_spawn_time = max(260, int(settings.ENEMY_SPAWN_TIME * (0.94 ** wave_idx)))
-        self.current_max_enemies = min(settings.MAX_ENEMIES + wave_idx // 2, settings.MAX_ENEMIES + 10)
+        early_targets = {1: 9, 2: 13, 3: 17}
+        self.wave_target_kills = early_targets.get(self.wave, 8 + self.wave * 4)
+        entry_pressure = 0.90 if self.wave <= 2 else 0.94
+        self.current_spawn_time = max(260, int(settings.ENEMY_SPAWN_TIME * entry_pressure * (0.94 ** wave_idx)))
+        early_enemy_bonus = 1 if self.wave <= 3 else 0
+        self.current_max_enemies = min(settings.MAX_ENEMIES + early_enemy_bonus + wave_idx // 2, settings.MAX_ENEMIES + 10)
 
     def _is_boss_wave(self):
         return self.wave > 0 and self.wave % 4 == 0
@@ -1043,6 +1046,9 @@ class Game:
             return
         if settings.VISUAL_QUALITY == "Performance" and sprite is not self.player:
             return
+        depth_intro = bool(getattr(sprite, "depth_intro_active", False))
+        if depth_intro and getattr(sprite, "depth_progress", 1.0) < 0.48:
+            return
         rect = sprite.rect.move(cam_x, cam_y)
         if rect.bottom < 0 or rect.top > settings.HEIGHT:
             return
@@ -1053,10 +1059,69 @@ class Game:
         if shadow_y > settings.HEIGHT + shadow_h:
             return
         alpha = int(28 + depth * 34)
+        if depth_intro:
+            alpha = int(alpha * max(0.2, min(1.0, getattr(sprite, "depth_progress", 1.0))))
         layer = pygame.Surface((shadow_w + 10, shadow_h + 8), pygame.SRCALPHA)
         pygame.draw.ellipse(layer, (0, 0, 0, alpha), (5, 2, shadow_w, shadow_h))
         pygame.draw.ellipse(layer, (74, 154, 255, max(10, alpha // 3)), (5, 2, shadow_w, shadow_h), 1)
         self.screen.blit(layer, (rect.centerx - layer.get_width() // 2, shadow_y - layer.get_height() // 2))
+
+    def _world_sprite_draw_key(self, sprite):
+        if isinstance(sprite, FloatingText):
+            return (5, sprite.rect.centery)
+        if sprite is self.player:
+            return (4, settings.HEIGHT + 10)
+        if getattr(sprite, "depth_intro_active", False):
+            return (1, float(getattr(sprite, "depth_progress", 0.0)))
+        if isinstance(sprite, (Enemy, ShooterEnemy, BossEnemy)):
+            return (2, sprite.rect.centery)
+        return (3, sprite.rect.centery)
+
+    def _sorted_world_sprites(self):
+        return sorted(tuple(self.all_sprites), key=self._world_sprite_draw_key)
+
+    def _depth_wake_color(self, enemy):
+        if getattr(enemy, "is_elite", False):
+            return tuple(max(0, int(c * 0.82)) for c in getattr(enemy, "_elite_glow_rgb", (255, 190, 120)))
+        if enemy.etype == "saucer":
+            return (76, 132, 190)
+        if enemy.etype == "drone":
+            return (70, 188, 168)
+        if enemy.etype == "spiky":
+            return (154, 96, 206)
+        return (200, 104, 124)
+
+    def _draw_depth_entry_wakes(self, now, cam_x=0, cam_y=0):
+        if settings.VISUAL_QUALITY == "Performance":
+            return
+        depth_enemies = [enemy for enemy in self.enemies if getattr(enemy, "depth_intro_active", False)]
+        if not depth_enemies:
+            return
+        layer = pygame.Surface((settings.WIDTH, settings.HEIGHT), pygame.SRCALPHA)
+        for enemy in depth_enemies:
+            progress = max(0.0, min(1.0, float(getattr(enemy, "depth_progress", 0.0))))
+            color = self._depth_wake_color(enemy)
+            trail = list(getattr(enemy, "depth_trail", []))
+            if len(trail) >= 2:
+                points = [(int(x + cam_x), int(y + cam_y)) for x, y in trail]
+                for i in range(1, len(points)):
+                    t = i / max(1, len(points) - 1)
+                    alpha = int((14 + 54 * t) * (0.35 + progress * 0.65))
+                    width = max(1, int(1 + 3 * t * progress))
+                    pygame.draw.line(layer, (*color, alpha), points[i - 1], points[i], width)
+                    if i == len(points) - 1 and progress < 0.72:
+                        p = points[i]
+                        pygame.draw.circle(layer, (*color, int(22 + 34 * progress)), p, max(5, int(enemy.rect.width * 0.26)), 1)
+
+            if progress < 0.18:
+                sx, sy = getattr(enemy, "_depth_start", enemy.rect.center)
+                pulse = 0.5 + 0.5 * math.sin(now * 0.014 + getattr(enemy, "_depth_wobble_phase", 0.0))
+                ring_r = int(10 + 11 * (1.0 - progress) + pulse * 3)
+                alpha = int(46 * (1.0 - progress / 0.18))
+                center = (int(sx + cam_x), int(sy + cam_y))
+                pygame.draw.circle(layer, (*color, alpha), center, ring_r, 1)
+                pygame.draw.circle(layer, (230, 250, 255, max(18, alpha // 2)), center, max(3, ring_r // 3), 1)
+        self.screen.blit(layer, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
     def _draw_player_bullet_trail(self, bullet, cam_x=0, cam_y=0):
         points = bullet.trail_points + [(bullet.rect.centerx, bullet.rect.bottom)]
@@ -1649,7 +1714,7 @@ class Game:
             self.floating.update(dt)
             draw_background(self.screen, self.stars, dt)
             cam_x, cam_y = self._consume_camera_offset(dt)
-            for sprite in tuple(self.all_sprites):
+            for sprite in self._sorted_world_sprites():
                 if sprite is self.player:
                     continue
                 self.screen.blit(sprite.image, sprite.rect.move(cam_x, cam_y))
@@ -1704,8 +1769,22 @@ class Game:
             enemy.health += 1
             enemy.max_health = enemy.health
             enemy.score_reward += 8
+        enemy.enter_depth_lane(lane=self._choose_depth_lane(), wave=self.wave, now=pygame.time.get_ticks())
         self.enemies.add(enemy)
         self.all_sprites.add(enemy)
+
+    def _choose_depth_lane(self):
+        lanes = (-2, -1, 0, 1, 2)
+        active_counts = {lane: 0 for lane in lanes}
+        for enemy in self.enemies:
+            if getattr(enemy, "depth_intro_active", False):
+                lane = max(-2, min(2, int(getattr(enemy, "depth_lane", 0))))
+                active_counts[lane] += 1
+        least_loaded = min(active_counts.values())
+        candidates = [lane for lane, count in active_counts.items() if count == least_loaded]
+        if 0 in candidates and random.random() < 0.35:
+            return 0
+        return random.choice(candidates)
 
     def _finish_round(self, outcome):
         self.running = False
@@ -1881,6 +1960,8 @@ class Game:
 
             hits = pygame.sprite.groupcollide(self.enemies, self.bullets, False, False)
             for enemy, hit_bullets in hits.items():
+                if hasattr(enemy, "is_targetable") and not enemy.is_targetable():
+                    continue
                 processed_bullets = []
                 for bullet in hit_bullets:
                     if not bullet.alive():
@@ -1916,6 +1997,7 @@ class Game:
                     self._handle_enemy_defeat(enemy, allow_powerup_drop=True)
 
             hits2 = pygame.sprite.spritecollide(self.player, self.enemies, False, pygame.sprite.collide_rect)
+            hits2 = [enemy for enemy in hits2 if not hasattr(enemy, "is_targetable") or enemy.is_targetable()]
             if hits2:
                 took_damage = False
                 if self.player.shield:
@@ -1998,16 +2080,18 @@ class Game:
 
             draw_background(self.screen, self.stars, dt)
             cam_x, cam_y = self._consume_camera_offset(dt)
+            self._draw_depth_entry_wakes(now, cam_x=cam_x, cam_y=cam_y)
 
             if settings.BULLET_TRAIL_LENGTH > 0:
                 for bullet in self.bullets:
                     self._draw_player_bullet_trail(bullet, cam_x=cam_x, cam_y=cam_y)
 
-            for sprite in tuple(self.all_sprites):
+            world_sprites = self._sorted_world_sprites()
+            for sprite in world_sprites:
                 self._draw_sprite_depth_shadow(sprite, cam_x=cam_x, cam_y=cam_y)
             for effect in tuple(self.effects):
                 self.screen.blit(effect.image, effect.rect.move(cam_x, cam_y))
-            for sprite in tuple(self.all_sprites):
+            for sprite in world_sprites:
                 self.screen.blit(sprite.image, sprite.rect.move(cam_x, cam_y))
             if self.player.shield:
                 self.player.draw_shield(self.screen, cam_x=cam_x, cam_y=cam_y, now=now)

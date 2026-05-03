@@ -506,6 +506,164 @@ class Enemy(pygame.sprite.Sprite):
         self.speedy = random.uniform(base_min, base_max)
         self.max_health = self.health
         self.score_reward = 10 + int(self.size)
+        self.depth_intro_active = False
+        self.depth_lane = 0
+        self.depth_progress = 1.0
+        self.depth_visual_scale = 1.0
+        self.depth_trail = []
+        self._depth_started_at = 0
+        self._depth_duration_ms = 900
+        self._depth_start = (self.rect.centerx, self.rect.centery)
+        self._depth_control = (self.rect.centerx, self.rect.centery)
+        self._depth_end = (self.rect.centerx, self.rect.centery)
+        self._depth_wobble_phase = random.uniform(0.0, math.tau)
+        self._depth_wobble_amp = random.uniform(4.0, 12.0)
+        self._depth_arrival_scale = 1.0
+        self._depth_ready_flash_until = 0
+        self._depth_ready_announced = True
+
+    def enter_depth_lane(self, lane=0, wave=1, now=None, start_progress=0.0):
+        lane = max(-2, min(2, int(lane)))
+        wave = max(1, int(wave))
+        now = pygame.time.get_ticks() if now is None else int(now)
+
+        self.depth_intro_active = True
+        self.depth_lane = lane
+        self.depth_progress = max(0.0, min(0.95, float(start_progress)))
+        self.depth_trail = []
+        self._depth_arrival_scale = 1.0
+        self._depth_ready_flash_until = 0
+        self._depth_ready_announced = self.depth_progress >= 0.28
+
+        lane_spacing_far = settings.WIDTH * 0.036
+        lane_spacing_near = settings.WIDTH * 0.155
+        far_x = settings.WIDTH * 0.5 + lane * lane_spacing_far + random.uniform(-24, 24)
+        near_x = settings.WIDTH * 0.5 + lane * lane_spacing_near + random.uniform(-54, 54)
+        far_y = settings.HEIGHT * 0.18 + random.uniform(-18, 22)
+        near_y = settings.HEIGHT * 0.24 + random.uniform(26, 104)
+        control_x = (far_x + near_x) * 0.5 + random.uniform(-90, 90)
+        control_y = settings.HEIGHT * 0.10 + random.uniform(-10, 120)
+
+        if self.etype == "saucer":
+            control_x += lane * 42 + random.choice((-1, 1)) * random.uniform(70, 130)
+            near_y += random.uniform(-20, 20)
+            duration = random.randint(980, 1320)
+            self._depth_wobble_amp = random.uniform(10, 22)
+        elif self.etype == "drone":
+            control_x += random.choice((-1, 1)) * random.uniform(80, 150)
+            near_y += random.uniform(4, 42)
+            duration = random.randint(600, 820)
+            self._depth_wobble_amp = random.uniform(10, 20)
+        elif self.etype == "spiky":
+            control_y += random.uniform(80, 150)
+            near_y += random.uniform(38, 92)
+            duration = random.randint(520, 720)
+            self._depth_wobble_amp = random.uniform(5, 13)
+            self._depth_arrival_scale = 1.06
+        else:
+            duration = random.randint(700, 940)
+            self._depth_wobble_amp = random.uniform(5, 13)
+
+        if self.elite_role == "raider":
+            duration = int(duration * 0.82)
+            control_x += random.choice((-1, 1)) * 58
+        elif self.elite_role == "bulwark":
+            duration = int(duration * 1.18)
+            self._depth_arrival_scale = 1.08
+        elif self.elite_role == "sniper":
+            near_y = min(near_y, settings.HEIGHT * 0.24)
+            duration = int(duration * 1.05)
+
+        self._depth_duration_ms = max(420, int(duration * (0.96 ** min(8, wave - 1))))
+        self._depth_started_at = now - int(self.depth_progress * self._depth_duration_ms)
+        self._depth_start = (far_x, far_y)
+        self._depth_control = (control_x, control_y)
+        self._depth_end = (
+            max(self.size, min(settings.WIDTH - self.size, near_x)),
+            max(24, min(settings.HEIGHT * 0.48, near_y)),
+        )
+        self._depth_wobble_phase = random.uniform(0.0, math.tau)
+        self._depth_update_pose(now)
+
+    def _ease_depth(self, t):
+        t = max(0.0, min(1.0, t))
+        return 1.0 - (1.0 - t) ** 3
+
+    def _depth_bezier_point(self, t):
+        inv = 1.0 - t
+        x = inv * inv * self._depth_start[0] + 2 * inv * t * self._depth_control[0] + t * t * self._depth_end[0]
+        y = inv * inv * self._depth_start[1] + 2 * inv * t * self._depth_control[1] + t * t * self._depth_end[1]
+        return x, y
+
+    def _depth_current_center(self, now):
+        t = self.depth_progress
+        x, y = self._depth_bezier_point(t)
+        wobble_strength = (0.25 + t * 0.75) * self._depth_wobble_amp
+        if self.etype == "drone":
+            wobble = math.sin(now * 0.012 + self._depth_wobble_phase) * wobble_strength
+        elif self.etype == "saucer":
+            wobble = math.sin(now * 0.004 + self._depth_wobble_phase) * wobble_strength
+        else:
+            wobble = math.sin(now * 0.006 + self._depth_wobble_phase) * wobble_strength * 0.5
+        return x + wobble, y
+
+    def _depth_scale_for_progress(self):
+        t = max(0.0, min(1.0, self.depth_progress))
+        eased = self._ease_depth(t)
+        far_scale = 0.40 if self.etype != "saucer" else 0.36
+        overshoot = max(0.0, self._depth_arrival_scale - 1.0) * math.sin(math.pi * t)
+        arrival_scale = 1.0 + overshoot
+        return far_scale + (arrival_scale - far_scale) * eased
+
+    def _set_frame_image(self, center=None, depth_scaled=False):
+        base = self._frames[self._frame_idx]
+        if depth_scaled:
+            self.depth_visual_scale = self._depth_scale_for_progress()
+            w = max(8, int(base.get_width() * self.depth_visual_scale))
+            h = max(8, int(base.get_height() * self.depth_visual_scale))
+            self.image = pygame.transform.smoothscale(base, (w, h))
+            alpha = int(92 + 163 * self._ease_depth(self.depth_progress))
+            self.image.set_alpha(max(72, min(255, alpha)))
+        else:
+            self.depth_visual_scale = 1.0
+            self.image = base
+        center = self.rect.center if center is None else center
+        self.rect = self.image.get_rect(center=(int(center[0]), int(center[1])))
+        self.pos_x = float(self.rect.x)
+        self.pos_y = float(self.rect.y)
+
+    def _apply_depth_ready_flash(self, now):
+        if now >= self._depth_ready_flash_until:
+            return
+        remain = max(0.0, min(1.0, (self._depth_ready_flash_until - now) / 260.0))
+        flash = self.image.copy()
+        rect = flash.get_rect()
+        alpha = int(52 + 122 * remain)
+        edge = (214, 252, 255, alpha)
+        glow = (112, 214, 255, max(18, alpha // 3))
+        pygame.draw.ellipse(flash, glow, rect.inflate(-2, -2), 2)
+        pygame.draw.ellipse(flash, edge, rect.inflate(-6, -6), 1)
+        if rect.width >= 18 and rect.height >= 18:
+            pygame.draw.circle(flash, (246, 255, 224, int(80 * remain)), rect.center, max(3, min(rect.width, rect.height) // 8))
+        self.image = flash
+
+    def _finish_depth_intro(self):
+        self.depth_intro_active = False
+        self.depth_progress = 1.0
+        self.depth_visual_scale = 1.0
+        self.depth_trail = []
+        self._set_frame_image(center=self._depth_end, depth_scaled=False)
+
+    def _depth_update_pose(self, now):
+        center = self._depth_current_center(now)
+        self._set_frame_image(center=center, depth_scaled=True)
+        self.depth_trail.append(center)
+        max_points = 5 if self.etype == "drone" else 7
+        if len(self.depth_trail) > max_points:
+            self.depth_trail = self.depth_trail[-max_points:]
+
+    def is_targetable(self):
+        return not self.depth_intro_active or self.depth_progress >= 0.28
 
     def _elite_frame(self, frame):
         out = frame.copy()
@@ -558,10 +716,7 @@ class Enemy(pygame.sprite.Sprite):
 
         self.max_health = self.health
         self._frames = [self._elite_frame(frame) for frame in self._frames]
-        self.image = self._frames[self._frame_idx]
-        self.rect = self.image.get_rect(center=center)
-        self.pos_x = float(self.rect.x)
-        self.pos_y = float(self.rect.y)
+        self._set_frame_image(center=center, depth_scaled=self.depth_intro_active)
 
     def absorb_player_damage(self, amount, now=None):
         dmg = max(0, int(amount))
@@ -580,6 +735,8 @@ class Enemy(pygame.sprite.Sprite):
 
     def maybe_shoot(self, now, bullets_group, all_sprites, player_x):
         if not self.is_sniper:
+            return False
+        if not self.is_targetable():
             return False
         if self.rect.top < 16:
             return False
@@ -693,45 +850,51 @@ class Enemy(pygame.sprite.Sprite):
     def update(self, dt=None):
         now = pygame.time.get_ticks()
         scale = _dt_scale(dt)
+        was_targetable = self.is_targetable()
         step = (now // 120 + self._anim_offset) % len(self._frames)
         if step != self._frame_idx:
-            center = self.rect.center
             self._frame_idx = step
-            self.image = self._frames[self._frame_idx]
-            self.rect = self.image.get_rect(center=center)
-            self.pos_x = float(self.rect.x)
-            self.pos_y = float(self.rect.y)
+
+        if self.depth_intro_active:
+            elapsed = max(0, now - self._depth_started_at)
+            self.depth_progress = min(1.0, elapsed / max(1, self._depth_duration_ms))
+            if self.depth_progress >= 1.0:
+                self._finish_depth_intro()
+            else:
+                self._depth_update_pose(now)
+            if not was_targetable and self.is_targetable() and not self._depth_ready_announced:
+                self._depth_ready_announced = True
+                self._depth_ready_flash_until = now + 260
         elif self.image is not self._frames[self._frame_idx]:
-            center = self.rect.center
-            self.image = self._frames[self._frame_idx]
-            self.rect = self.image.get_rect(center=center)
-            self.pos_x = float(self.rect.x)
-            self.pos_y = float(self.rect.y)
+            self._set_frame_image(center=self.rect.center, depth_scaled=False)
 
         if self.elite_role == "bulwark" and now < self._armor_flash_until:
-            flash = self._frames[self._frame_idx].copy()
+            flash = self.image.copy()
             c = (flash.get_width() // 2, flash.get_height() // 2)
             r = min(c) - 2
             pygame.draw.circle(flash, (180, 238, 255, 165), c, max(4, r), 2)
             self.image = flash
 
-        self.pos_y += self.speedy * scale
-        if self.etype == 'saucer':
-            self.pos_x += math.sin(now * 0.002 + self.pos_x * 0.05) * 0.6 * scale
-        if self.etype == 'drone':
-            self.pos_x += math.sin(now * 0.004 + self.pos_y * 0.02) * 0.9 * scale
-        if self.elite_role == "raider":
-            self.pos_x += math.sin(now * 0.006 + self.pos_y * 0.035) * 1.8 * scale
-        elif self.elite_role == "sniper":
-            self.pos_x += math.sin(now * 0.0036 + self.pos_y * 0.02) * 1.1 * scale
-        self.rect.x = int(self.pos_x)
-        self.rect.y = int(self.pos_y)
-        if self.rect.left < 0:
-            self.rect.left = 0
-            self.pos_x = float(self.rect.x)
-        if self.rect.right > settings.WIDTH:
-            self.rect.right = settings.WIDTH
-            self.pos_x = float(self.rect.x)
+        self._apply_depth_ready_flash(now)
+
+        if not self.depth_intro_active:
+            self.pos_y += self.speedy * scale
+            if self.etype == 'saucer':
+                self.pos_x += math.sin(now * 0.002 + self.pos_x * 0.05) * 0.6 * scale
+            if self.etype == 'drone':
+                self.pos_x += math.sin(now * 0.004 + self.pos_y * 0.02) * 0.9 * scale
+            if self.elite_role == "raider":
+                self.pos_x += math.sin(now * 0.006 + self.pos_y * 0.035) * 1.8 * scale
+            elif self.elite_role == "sniper":
+                self.pos_x += math.sin(now * 0.0036 + self.pos_y * 0.02) * 1.1 * scale
+            self.rect.x = int(self.pos_x)
+            self.rect.y = int(self.pos_y)
+            if self.rect.left < 0:
+                self.rect.left = 0
+                self.pos_x = float(self.rect.x)
+            if self.rect.right > settings.WIDTH:
+                self.rect.right = settings.WIDTH
+                self.pos_x = float(self.rect.x)
         if self.rect.top > settings.HEIGHT:
             self.kill()
 
