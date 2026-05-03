@@ -6,9 +6,14 @@ Arcade 2D shooter built with Pygame.
 
 - Polished animated main menu and pause menu
 - Adaptive options UI with mouse + keyboard support
+- 16:9 scaled playfield (`1280x720`) for modern displays
 - Visual quality presets: `Performance`, `Balanced`, `Cinematic`, `Enhanced`
-- Fullscreen support (`F11` or Options)
+- Default borderless fullscreen with preserved 16:9 aspect ratio (`F11` or Options)
 - FPS cap control and optional FPS counter
+- Local ship frame selection: `Interceptor`, `Vanguard`, `Lancer`
+- Distinct local weapon profiles: twin pulse, plasma caster, rail lance
+- Local Run Mode foundation: 8-wave offline operation split into visual sectors
+- 2.5D visual pass with depth stars, orbital backdrop, perspective grid, and sprite shadows
 - Wave progression with special enemies and boss phases
 - Death replay (5 seconds, skippable)
 - Local high scores (`data/highscores.json`)

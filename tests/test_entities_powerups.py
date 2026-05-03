@@ -26,6 +26,25 @@ def test_player_shoot_respects_cooldown_and_double_mode():
     assert xs[1] != xs[2]
 
 
+def test_player_ship_weapon_profiles_create_distinct_bullets():
+    cases = [
+        ("interceptor", 2, "interceptor", 0),
+        ("vanguard", 1, "vanguard", 0),
+        ("lancer", 1, "lancer", 1),
+    ]
+
+    for style, expected_count, expected_variant, expected_pierce in cases:
+        player = Player(style=style)
+        bullets = pygame.sprite.Group()
+        all_sprites = pygame.sprite.Group(player)
+
+        fired = player.shoot(1000, bullets, all_sprites)
+        assert fired == expected_count
+        assert len(bullets) == expected_count
+        assert {b.variant for b in bullets} == {expected_variant}
+        assert all(b.pierce_remaining == expected_pierce for b in bullets)
+
+
 def test_boss_enemy_stats_scale_by_wave():
     boss_w4 = BossEnemy(wave=4)
     boss_w8 = BossEnemy(wave=8)

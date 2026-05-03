@@ -51,6 +51,7 @@ def test_user_settings_roundtrip(tmp_path, monkeypatch):
     loaded = storage.load_user_settings()
     assert loaded["difficulty"] == "Normal"
     assert loaded["visual_quality"] == "Balanced"
+    assert loaded["fullscreen"] is True
     assert loaded["fps_cap"] in storage.settings.FPS_OPTIONS
     assert loaded["show_fps"] is True
 

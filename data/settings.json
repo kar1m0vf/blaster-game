@@ -1,8 +1,9 @@
 {
-  "difficulty": "Hard",
-  "visual_quality": "Cinematic",
+  "difficulty": "Normal",
+  "visual_quality": "Enhanced",
   "master_volume": 0.6,
   "fullscreen": true,
   "fps_cap": 120,
-  "show_fps": true
+  "show_fps": true,
+  "selected_ship": "interceptor"
 }

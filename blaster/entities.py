@@ -12,11 +12,89 @@ def _dt_scale(dt):
     return max(0.0, min(3.0, float(dt) / _BASE_FRAME_MS))
 
 
+def _glow_circle(surf, color, center, radius, layers=3, alpha=44):
+    for layer in range(layers, 0, -1):
+        r = max(1, int(radius * layer / layers))
+        a = max(1, int(alpha * layer / layers))
+        pygame.draw.circle(surf, (*color[:3], a), center, r)
+
+
+class Particle(pygame.sprite.Sprite):
+    def __init__(
+        self,
+        x,
+        y,
+        vel=(0.0, 0.0),
+        color=(120, 220, 255),
+        life=420,
+        size=4,
+        shape="soft",
+        gravity=0.0,
+    ):
+        super().__init__()
+        self.pos_x = float(x)
+        self.pos_y = float(y)
+        self.vel_x = float(vel[0])
+        self.vel_y = float(vel[1])
+        self.color = color
+        self.life = max(1, int(life))
+        self.size = max(1, int(size))
+        self.shape = shape
+        self.gravity = float(gravity)
+        self.start = pygame.time.get_ticks()
+        self.image = pygame.Surface((1, 1), pygame.SRCALPHA)
+        self.rect = self.image.get_rect(center=(int(self.pos_x), int(self.pos_y)))
+        self._redraw(1.0)
+
+    def _redraw(self, remain):
+        alpha = int(235 * max(0.0, min(1.0, remain)))
+        radius = max(1, int(self.size * (0.35 + remain * 0.9)))
+        pad = radius * 4 + 8
+        surf = pygame.Surface((pad, pad), pygame.SRCALPHA)
+        cx = pad // 2
+        cy = pad // 2
+        rgb = self.color[:3]
+
+        if self.shape == "spark":
+            length = max(radius + 3, int(radius * 4.5))
+            mag = max(0.1, math.hypot(self.vel_x, self.vel_y))
+            ux = -self.vel_x / mag
+            uy = -self.vel_y / mag
+            tail = (int(cx + ux * length), int(cy + uy * length))
+            pygame.draw.line(surf, (*rgb, alpha), tail, (cx, cy), max(1, radius // 2 + 1))
+            pygame.draw.circle(surf, (255, 245, 205, min(255, alpha + 20)), (cx, cy), max(1, radius // 2))
+        elif self.shape == "ring":
+            pygame.draw.circle(surf, (*rgb, alpha // 2), (cx, cy), radius + 3, 2)
+            pygame.draw.circle(surf, (*rgb, alpha), (cx, cy), radius, 1)
+        else:
+            pygame.draw.circle(surf, (*rgb, alpha // 4), (cx, cy), radius + 4)
+            pygame.draw.circle(surf, (*rgb, alpha), (cx, cy), radius)
+            core = (min(255, rgb[0] + 70), min(255, rgb[1] + 55), min(255, rgb[2] + 35))
+            pygame.draw.circle(surf, (*core, min(255, alpha + 15)), (cx, cy), max(1, radius // 2))
+
+        self.image = surf
+        self.rect = self.image.get_rect(center=(int(self.pos_x), int(self.pos_y)))
+
+    def update(self, dt=None):
+        now = pygame.time.get_ticks()
+        age = now - self.start
+        if age >= self.life:
+            self.kill()
+            return
+        scale = _dt_scale(dt)
+        self.vel_y += self.gravity * scale
+        self.pos_x += self.vel_x * scale
+        self.pos_y += self.vel_y * scale
+        remain = 1.0 - age / self.life
+        self._redraw(remain)
+
+
 class Player(pygame.sprite.Sprite):
-    def __init__(self, width=60, height=68):
+    def __init__(self, width=60, height=68, style="classic"):
         super().__init__()
         self.width = width
         self.height = height
+        self.style = style
         self._frames = (
             self._build_ship_sprite(0),
             self._build_ship_sprite(1),
@@ -38,53 +116,98 @@ class Player(pygame.sprite.Sprite):
         self.double_end = 0
         self._base_shoot_cooldown = self.shoot_cooldown
 
+    def _palette(self):
+        if self.style == "vanguard":
+            return {
+                "glow": (92, 244, 204),
+                "wing": (20, 82, 82),
+                "tail": (34, 124, 112),
+                "hull": (42, 172, 158),
+                "line": (176, 255, 232),
+                "panel": (10, 48, 54),
+                "cockpit": (150, 255, 228),
+                "engine": (92, 244, 204),
+            }
+        if self.style == "lancer":
+            return {
+                "glow": (255, 198, 96),
+                "wing": (94, 62, 24),
+                "tail": (154, 92, 34),
+                "hull": (224, 136, 42),
+                "line": (255, 232, 166),
+                "panel": (58, 34, 14),
+                "cockpit": (255, 218, 130),
+                "engine": (255, 132, 82),
+            }
+        return {
+            "glow": (80, 180, 255),
+            "wing": (16, 50, 104),
+            "tail": (28, 92, 168),
+            "hull": (38, 132, 232),
+            "line": (196, 238, 255),
+            "panel": (11, 24, 52),
+            "cockpit": (92, 210, 255),
+            "engine": (255, 160, 70),
+        }
+
     def _build_ship_sprite(self, flame_level):
         surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         w = self.width
         h = self.height
+        pal = self._palette()
 
-        wing_left = [(w // 2 - 6, h - 34), (8, h - 18), (w // 2 - 18, h - 12)]
-        wing_right = [(w // 2 + 6, h - 34), (w - 8, h - 18), (w // 2 + 18, h - 12)]
-        pygame.draw.polygon(surf, (30, 74, 150), wing_left)
-        pygame.draw.polygon(surf, (30, 74, 150), wing_right)
-        pygame.draw.polygon(surf, (92, 156, 242), wing_left, 2)
-        pygame.draw.polygon(surf, (92, 156, 242), wing_right, 2)
+        _glow_circle(surf, pal["glow"], (w // 2, h // 2 + 5), 34, layers=4, alpha=28)
 
-        hull = [(w // 2, 2), (w - 14, h - 22), (w // 2, h - 34), (14, h - 22)]
-        pygame.draw.polygon(surf, (40, 128, 228), hull)
-        pygame.draw.polygon(surf, (140, 208, 255), hull, 2)
-        pygame.draw.polygon(
-            surf,
-            (24, 40, 74),
-            [(w // 2, 9), (w - 22, h - 24), (w // 2, h - 36), (22, h - 24)],
-        )
+        left_wing = [(w // 2 - 7, h - 42), (5, h - 22), (w // 2 - 24, h - 7), (w // 2 - 16, h - 32)]
+        right_wing = [(w // 2 + 7, h - 42), (w - 5, h - 22), (w // 2 + 24, h - 7), (w // 2 + 16, h - 32)]
+        tail_left = [(w // 2 - 12, h - 31), (w // 2 - 27, h - 2), (w // 2 - 8, h - 16)]
+        tail_right = [(w // 2 + 12, h - 31), (w // 2 + 27, h - 2), (w // 2 + 8, h - 16)]
+        hull = [(w // 2, 1), (w - 15, h - 25), (w // 2, h - 38), (15, h - 25)]
+        inner_hull = [(w // 2, 10), (w - 24, h - 27), (w // 2, h - 42), (24, h - 27)]
 
-        pygame.draw.ellipse(surf, (148, 230, 255), (w // 2 - 8, 15, 16, 20))
-        pygame.draw.ellipse(surf, (220, 252, 255), (w // 2 - 5, 18, 10, 13))
+        pygame.draw.polygon(surf, pal["wing"], left_wing)
+        pygame.draw.polygon(surf, pal["wing"], right_wing)
+        pygame.draw.polygon(surf, pal["tail"], tail_left)
+        pygame.draw.polygon(surf, pal["tail"], tail_right)
+        pygame.draw.polygon(surf, pal["line"], left_wing, 2)
+        pygame.draw.polygon(surf, pal["line"], right_wing, 2)
+        pygame.draw.polygon(surf, pal["glow"], tail_left, 1)
+        pygame.draw.polygon(surf, pal["glow"], tail_right, 1)
 
-        pygame.draw.rect(surf, (255, 218, 108), (w // 2 - 2, 0, 4, 13), border_radius=2)
-        pygame.draw.circle(surf, (255, 246, 182), (w // 2, 2), 3)
-        pygame.draw.circle(surf, (255, 208, 120), (w // 2 - 7, 9), 2)
-        pygame.draw.circle(surf, (255, 208, 120), (w // 2 + 7, 9), 2)
+        pygame.draw.polygon(surf, pal["hull"], hull)
+        pygame.draw.polygon(surf, pal["line"], hull, 2)
+        pygame.draw.polygon(surf, pal["panel"], inner_hull)
+        pygame.draw.polygon(surf, pal["glow"], inner_hull, 1)
 
-        left_nozzle = pygame.Rect(w // 2 - 13, h - 16, 7, 7)
-        right_nozzle = pygame.Rect(w // 2 + 6, h - 16, 7, 7)
-        pygame.draw.rect(surf, (38, 48, 76), left_nozzle, border_radius=2)
-        pygame.draw.rect(surf, (38, 48, 76), right_nozzle, border_radius=2)
-        pygame.draw.rect(surf, (110, 134, 170), left_nozzle, 1, border_radius=2)
-        pygame.draw.rect(surf, (110, 134, 170), right_nozzle, 1, border_radius=2)
+        nose = [(w // 2, 0), (w // 2 + 5, 14), (w // 2, 20), (w // 2 - 5, 14)]
+        pygame.draw.polygon(surf, (255, 228, 130), nose)
+        pygame.draw.polygon(surf, (255, 248, 196), nose, 1)
 
-        flame_len = (5, 9, 13)[flame_level]
-        for cx in (left_nozzle.centerx, right_nozzle.centerx):
+        cockpit = pygame.Rect(w // 2 - 9, 16, 18, 25)
+        pygame.draw.ellipse(surf, pal["cockpit"], cockpit)
+        pygame.draw.ellipse(surf, (232, 254, 255), cockpit.inflate(-7, -8))
+        pygame.draw.line(surf, (16, 48, 88), (w // 2, 17), (w // 2, 39), 1)
+
+        for cannon_x in (w // 2 - 16, w // 2 + 16):
+            pygame.draw.rect(surf, (36, 50, 84), (cannon_x - 3, 8, 6, 21), border_radius=2)
+            pygame.draw.rect(surf, pal["line"], (cannon_x - 3, 8, 6, 21), 1, border_radius=2)
+            pygame.draw.circle(surf, (255, 214, 116), (cannon_x, 8), 2)
+
+        flame_len = (6, 12, 17)[flame_level]
+        for nozzle_x in (w // 2 - 13, w // 2 + 13):
+            nozzle = pygame.Rect(nozzle_x - 5, h - 18, 10, 8)
+            pygame.draw.rect(surf, (34, 42, 70), nozzle, border_radius=3)
+            pygame.draw.rect(surf, (120, 148, 190), nozzle, 1, border_radius=3)
+            _glow_circle(surf, pal["engine"], (nozzle_x, h - 7), 7 + flame_level * 2, layers=2, alpha=48)
             pygame.draw.polygon(
                 surf,
-                (255, 170, 70, 170),
-                [(cx - 3, h - 10), (cx + 3, h - 10), (cx, min(h - 1, h - 10 + flame_len))],
+                (*pal["engine"], 185),
+                [(nozzle_x - 4, h - 11), (nozzle_x + 4, h - 11), (nozzle_x, min(h - 1, h - 11 + flame_len))],
             )
             pygame.draw.polygon(
                 surf,
-                (255, 236, 176, 210),
-                [(cx - 1, h - 10), (cx + 1, h - 10), (cx, min(h - 1, h - 11 + flame_len - 2))],
+                (255, 238, 180, 230),
+                [(nozzle_x - 1, h - 12), (nozzle_x + 1, h - 12), (nozzle_x, min(h - 1, h - 12 + flame_len - 3))],
             )
         return surf
 
@@ -182,9 +305,43 @@ class Player(pygame.sprite.Sprite):
         if now - self.last_shot < self.shoot_cooldown:
             return 0
 
-        offsets = (-8, 8) if self.double_end and now <= self.double_end else (0,)
+        if self.style == "interceptor":
+            offsets = (-18, -6, 6, 18) if self.double_end and now <= self.double_end else (-9, 9)
+            variant = "interceptor"
+            bullet_speed = settings.BULLET_SPEED + 1.2
+            pierce = 0
+        elif self.style == "vanguard":
+            offsets = (-10, 10) if self.double_end and now <= self.double_end else (0,)
+            variant = "vanguard"
+            bullet_speed = settings.BULLET_SPEED * 0.88
+            pierce = 0
+        elif self.style == "lancer":
+            offsets = (-12, 12) if self.double_end and now <= self.double_end else (0,)
+            variant = "lancer"
+            bullet_speed = settings.BULLET_SPEED + 1.6
+            pierce = 1
+        else:
+            offsets = (-8, 8) if self.double_end and now <= self.double_end else (0,)
+            variant = "standard"
+            bullet_speed = settings.BULLET_SPEED
+            pierce = 0
+
         for offset in offsets:
-            b = Bullet(self.rect.centerx + offset, self.rect.top + 3)
+            if self.style == "interceptor" and len(offsets) == 2:
+                speedx = -0.18 if offset < 0 else 0.18
+            elif self.style == "interceptor" and len(offsets) == 4:
+                speedx = (offset / 18.0) * 0.22
+            else:
+                speedx = 0.0
+            b = Bullet(
+                self.rect.centerx + offset,
+                self.rect.top + 3,
+                variant=variant,
+                speed=bullet_speed,
+                speedx=speedx,
+                damage=1,
+                pierce=pierce,
+            )
             bullets_group.add(b)
             all_sprites.add(b)
 
@@ -206,33 +363,84 @@ class Player(pygame.sprite.Sprite):
 
 
 class Bullet(pygame.sprite.Sprite):
-    def __init__(self, x, y):
+    def __init__(self, x, y, variant="standard", speed=None, speedx=0.0, damage=1, pierce=0):
         super().__init__()
-        self.image = pygame.Surface((6, 16), pygame.SRCALPHA)
-        pygame.draw.rect(self.image, (255, 255, 255), (2, 2, 2, 12))
-        pygame.draw.rect(self.image, (120, 220, 255), (1, 0, 4, 16), 1)
+        self.variant = variant
+        self.damage = max(1, int(damage))
+        self.pierce_remaining = max(0, int(pierce))
+        self.image = self._build_image()
         self.rect = self.image.get_rect(center=(x, y))
-        self.speedy = -settings.BULLET_SPEED
+        self.speedx = float(speedx)
+        self.speedy = -(settings.BULLET_SPEED if speed is None else float(speed))
+        self.pos_x = float(self.rect.x)
         self.pos_y = float(self.rect.y)
         self.trail_points = []
+
+    def _build_image(self):
+        if self.variant == "interceptor":
+            surf = pygame.Surface((10, 26), pygame.SRCALPHA)
+            _glow_circle(surf, (92, 220, 255), (5, 13), 8, layers=3, alpha=52)
+            pygame.draw.rect(surf, (82, 218, 255, 165), (3, 2, 4, 22), border_radius=2)
+            pygame.draw.rect(surf, (238, 254, 255), (4, 3, 2, 17), border_radius=1)
+            pygame.draw.circle(surf, (255, 236, 164), (5, 3), 2)
+            return surf
+        if self.variant == "vanguard":
+            surf = pygame.Surface((24, 30), pygame.SRCALPHA)
+            _glow_circle(surf, (78, 244, 210), (12, 15), 10, layers=3, alpha=34)
+            outer = [(12, 1), (21, 9), (18, 22), (12, 29), (6, 22), (3, 9)]
+            inner = [(12, 5), (17, 11), (15, 21), (12, 25), (9, 21), (7, 11)]
+            pygame.draw.polygon(surf, (20, 106, 96, 230), outer)
+            pygame.draw.polygon(surf, (126, 255, 224, 220), outer, 2)
+            pygame.draw.polygon(surf, (214, 255, 240, 238), inner)
+            pygame.draw.line(surf, (64, 220, 196, 180), (6, 14), (18, 14), 2)
+            pygame.draw.line(surf, (232, 255, 246, 180), (10, 7), (14, 22), 1)
+            pygame.draw.line(surf, (72, 244, 210, 160), (2, 18), (8, 20), 2)
+            pygame.draw.line(surf, (72, 244, 210, 160), (22, 18), (16, 20), 2)
+            return surf
+        if self.variant == "lancer":
+            surf = pygame.Surface((14, 42), pygame.SRCALPHA)
+            _glow_circle(surf, (255, 198, 96), (7, 21), 10, layers=4, alpha=60)
+            pygame.draw.line(surf, (255, 206, 104), (7, 2), (7, 40), 4)
+            pygame.draw.line(surf, (255, 252, 218), (7, 3), (7, 34), 2)
+            pygame.draw.circle(surf, (255, 248, 196), (7, 4), 3)
+            return surf
+
+        surf = pygame.Surface((12, 24), pygame.SRCALPHA)
+        _glow_circle(surf, (90, 210, 255), (6, 12), 8, layers=3, alpha=48)
+        pygame.draw.rect(surf, (92, 218, 255, 150), (3, 2, 6, 20), border_radius=3)
+        pygame.draw.rect(surf, (244, 254, 255), (5, 3, 2, 16), border_radius=1)
+        pygame.draw.circle(surf, (255, 246, 180), (6, 3), 2)
+        return surf
+
+    def register_hit(self):
+        if self.pierce_remaining > 0:
+            self.pierce_remaining -= 1
+            return True
+        self.kill()
+        return False
 
     def update(self, dt=None):
         if settings.BULLET_TRAIL_LENGTH > 0:
             self.trail_points.append((self.rect.centerx, self.rect.bottom))
             if len(self.trail_points) > settings.BULLET_TRAIL_LENGTH:
                 self.trail_points.pop(0)
-        self.pos_y += self.speedy * _dt_scale(dt)
+        scale = _dt_scale(dt)
+        self.pos_x += self.speedx * scale
+        self.pos_y += self.speedy * scale
+        self.rect.x = int(self.pos_x)
         self.rect.y = int(self.pos_y)
-        if self.rect.bottom < 0:
+        if self.rect.bottom < 0 or self.rect.right < -12 or self.rect.left > settings.WIDTH + 12:
             self.kill()
 
 
 class EnemyBullet(pygame.sprite.Sprite):
     def __init__(self, x, y, speed=4.6, speedx=0.0, color=(255, 118, 118), core_color=(255, 214, 152)):
         super().__init__()
-        self.image = pygame.Surface((6, 14), pygame.SRCALPHA)
-        pygame.draw.rect(self.image, color, (1, 0, 4, 14), border_radius=2)
-        pygame.draw.rect(self.image, core_color, (2, 2, 2, 8), border_radius=1)
+        self.image = pygame.Surface((12, 20), pygame.SRCALPHA)
+        _glow_circle(self.image, color, (6, 10), 7, layers=3, alpha=44)
+        pygame.draw.rect(self.image, (*color[:3], 190), (3, 2, 6, 16), border_radius=3)
+        pygame.draw.rect(self.image, core_color, (5, 4, 2, 10), border_radius=1)
+        pygame.draw.circle(self.image, (255, 246, 214), (6, 16), 2)
         self.rect = self.image.get_rect(center=(x, y))
         self.pos_x = float(self.rect.x)
         self.pos_y = float(self.rect.y)
@@ -409,25 +617,29 @@ class Enemy(pygame.sprite.Sprite):
         s = self.size
         surf = pygame.Surface((s, s), pygame.SRCALPHA)
         c = s // 2
-        pygame.draw.circle(surf, (110, 34, 64), (c, c), s // 2)
-        pygame.draw.circle(surf, (228, 78, 120), (c, c), s // 2 - 2)
-        pygame.draw.circle(surf, (255, 162, 174), (c, c), s // 2 - 6, 2)
+        _glow_circle(surf, (255, 92, 128), (c, c), s // 2, layers=4, alpha=36 + pulse * 6)
+        pygame.draw.circle(surf, (78, 20, 48), (c, c), s // 2 - 1)
+        pygame.draw.circle(surf, (220, 64, 112), (c, c), s // 2 - 4)
+        pygame.draw.circle(surf, (255, 154, 174), (c, c), s // 2 - 8, 2)
+        pygame.draw.arc(surf, (255, 218, 186, 160), (4, 4, s - 8, s - 8), 0.2 + pulse * 0.2, 2.7, 2)
         core_r = max(3, s // 6 + pulse)
-        pygame.draw.circle(surf, (255, 236, 166), (c, c), core_r)
-        glow = 3 + pulse * 2
-        pygame.draw.circle(surf, (255, 180, 120, 120), (c, c), min(s // 2 - 1, core_r + glow), 2)
-        pygame.draw.circle(surf, (255, 255, 220), (c - s // 5, c - s // 5), max(2, s // 12))
+        _glow_circle(surf, (255, 218, 126), (c, c), core_r + 5, layers=2, alpha=46)
+        pygame.draw.circle(surf, (255, 232, 146), (c, c), core_r)
+        pygame.draw.circle(surf, (255, 255, 226), (c - s // 5, c - s // 5), max(2, s // 12))
         return surf
 
     def _draw_saucer_frame(self, pulse):
         w = self.size
         h = max(18, self.size // 2 + 3)
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
-        pygame.draw.ellipse(surf, (74, 86, 154), (0, h // 4, w, h // 2 + h // 3))
-        pygame.draw.ellipse(surf, (126, 154, 232), (3, h // 4 + 2, w - 6, h // 2), 2)
+        _glow_circle(surf, (112, 172, 255), (w // 2, h // 2), w // 2, layers=3, alpha=20)
+        pygame.draw.ellipse(surf, (28, 34, 78), (1, h // 4, w - 2, h // 2 + h // 3))
+        pygame.draw.ellipse(surf, (76, 96, 174), (0, h // 4, w, h // 2 + h // 3), 0)
+        pygame.draw.ellipse(surf, (150, 188, 255), (3, h // 4 + 2, w - 6, h // 2), 2)
         dome = pygame.Rect(w // 5, 1, w - (w // 5) * 2, h // 2 + 2)
-        pygame.draw.ellipse(surf, (170, 218, 255), dome)
-        pygame.draw.ellipse(surf, (230, 248, 255), dome, 2)
+        pygame.draw.ellipse(surf, (96, 202, 255), dome)
+        pygame.draw.ellipse(surf, (238, 252, 255), dome.inflate(-5, -4))
+        pygame.draw.ellipse(surf, (230, 248, 255), dome, 1)
         light_count = 4
         step = (w - 18) / max(1, light_count - 1)
         for i in range(light_count):
@@ -442,16 +654,19 @@ class Enemy(pygame.sprite.Sprite):
         c = s // 2
         r_outer = s // 2
         r_inner = max(7, s // 3 + pulse)
+        _glow_circle(surf, (190, 92, 255), (c, c), r_outer, layers=4, alpha=28 + pulse * 5)
         points = []
         spikes = 10
         for i in range(spikes * 2):
             ang = (math.pi * 2 / (spikes * 2)) * i - math.pi / 2
             r = r_outer if i % 2 == 0 else r_inner
             points.append((c + int(math.cos(ang) * r), c + int(math.sin(ang) * r)))
-        pygame.draw.polygon(surf, (96, 26, 136), points)
-        pygame.draw.polygon(surf, (214, 118, 255), points, 2)
-        pygame.draw.circle(surf, (34, 16, 60), (c, c), s // 4 + 2)
-        pygame.draw.circle(surf, (228, 192, 255), (c, c), max(3, s // 7 + pulse))
+        pygame.draw.polygon(surf, (72, 20, 112), points)
+        pygame.draw.polygon(surf, (224, 128, 255), points, 2)
+        pygame.draw.circle(surf, (24, 12, 48), (c, c), s // 4 + 4)
+        pygame.draw.circle(surf, (140, 74, 210), (c, c), s // 4 + 1, 1)
+        pygame.draw.circle(surf, (236, 202, 255), (c, c), max(3, s // 7 + pulse))
+        pygame.draw.circle(surf, (255, 242, 255), (c - 1, c - 1), max(1, s // 12))
         return surf
 
     def _draw_drone_frame(self, pulse):
@@ -460,15 +675,18 @@ class Enemy(pygame.sprite.Sprite):
         nose = (s // 2, 1)
         left = (3, s - 4)
         right = (s - 3, s - 4)
-        pygame.draw.polygon(surf, (28, 118, 106), (nose, right, left))
-        pygame.draw.polygon(surf, (142, 236, 216), (nose, right, left), 2)
+        _glow_circle(surf, (92, 250, 218), (s // 2, s // 2 + 3), s // 2, layers=3, alpha=22 + pulse * 4)
+        pygame.draw.polygon(surf, (22, 98, 96), (nose, right, left))
+        pygame.draw.polygon(surf, (142, 240, 222), (nose, right, left), 2)
         pygame.draw.polygon(
             surf,
-            (14, 42, 50),
+            (8, 30, 42),
             [(s // 2, 7), (s - 10, s - 8), (s // 2, s - 14), (10, s - 8)],
         )
+        pygame.draw.line(surf, (92, 210, 210), (s // 2, 8), (s // 2, s - 15), 1)
+        pygame.draw.circle(surf, (18, 56, 66), (s // 2, s // 2 + 2), max(4, s // 5))
         wing_glow = 2 + pulse
-        pygame.draw.circle(surf, (132, 255, 230), (s // 2, s // 2 + 2), wing_glow + 2)
+        pygame.draw.circle(surf, (116, 255, 228), (s // 2, s // 2 + 2), wing_glow + 3)
         pygame.draw.circle(surf, (255, 236, 166), (s // 2, s // 2 + 2), wing_glow)
         return surf
 
@@ -549,15 +767,21 @@ class ShooterEnemy(pygame.sprite.Sprite):
         w = self.width
         h = self.height
         surf = pygame.Surface((w, h), pygame.SRCALPHA)
+        _glow_circle(surf, (255, 128, 88), (w // 2, h // 2), w // 2, layers=3, alpha=24)
         hull = [(w // 2, 2), (w - 6, h // 2), (w // 2, h - 4), (6, h // 2)]
-        pygame.draw.polygon(surf, (142, 72, 50), hull)
-        pygame.draw.polygon(surf, (242, 142, 92), hull, 2)
-        pygame.draw.polygon(surf, (36, 24, 22), [(w // 2, 8), (w - 16, h // 2), (w // 2, h - 10), (16, h // 2)])
-        pygame.draw.circle(surf, (255, 214, 122), (w // 2, h // 2), 5)
-        pygame.draw.rect(surf, (86, 44, 36), (4, h // 2 - 3, 10, 6), border_radius=2)
-        pygame.draw.rect(surf, (86, 44, 36), (w - 14, h // 2 - 3, 10, 6), border_radius=2)
-        pygame.draw.circle(surf, (255, 132, 94), (w // 2 - 10, h // 2), 2)
-        pygame.draw.circle(surf, (255, 132, 94), (w // 2 + 10, h // 2), 2)
+        wing_left = [(9, h // 2), (w // 2 - 12, h // 2 - 9), (w // 2 - 17, h - 6)]
+        wing_right = [(w - 9, h // 2), (w // 2 + 12, h // 2 - 9), (w // 2 + 17, h - 6)]
+        pygame.draw.polygon(surf, (110, 48, 40), wing_left)
+        pygame.draw.polygon(surf, (110, 48, 40), wing_right)
+        pygame.draw.polygon(surf, (172, 78, 56), hull)
+        pygame.draw.polygon(surf, (255, 154, 96), hull, 2)
+        pygame.draw.polygon(surf, (34, 22, 24), [(w // 2, 8), (w - 16, h // 2), (w // 2, h - 10), (16, h // 2)])
+        _glow_circle(surf, (255, 190, 92), (w // 2, h // 2), 9, layers=2, alpha=54)
+        pygame.draw.circle(surf, (255, 224, 132), (w // 2, h // 2), 5)
+        pygame.draw.rect(surf, (70, 34, 34), (3, h // 2 - 4, 13, 8), border_radius=3)
+        pygame.draw.rect(surf, (70, 34, 34), (w - 16, h // 2 - 4, 13, 8), border_radius=3)
+        pygame.draw.rect(surf, (255, 126, 86), (4, h // 2 - 2, 8, 4), border_radius=2)
+        pygame.draw.rect(surf, (255, 126, 86), (w - 12, h // 2 - 2, 8, 4), border_radius=2)
         return surf
 
     def maybe_shoot(self, now, bullets_group, all_sprites):
@@ -642,6 +866,7 @@ class BossEnemy(pygame.sprite.Sprite):
 
     def _draw_boss_frame(self, pulse):
         surf = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        _glow_circle(surf, (180, 96, 255), (self.width // 2, self.height // 2), 78, layers=5, alpha=22 + pulse * 5)
         shell = [
             (14, self.height // 2),
             (44, 14),
@@ -650,11 +875,20 @@ class BossEnemy(pygame.sprite.Sprite):
             (self.width - 44, self.height - 14),
             (44, self.height - 14),
         ]
-        pygame.draw.polygon(surf, (94, 34, 168), shell)
-        pygame.draw.polygon(surf, (214, 126, 255), shell, 3)
+        wing_left = [(18, self.height // 2), (4, self.height // 2 + 30), (56, self.height - 10), (48, self.height // 2 + 10)]
+        wing_right = [
+            (self.width - 18, self.height // 2),
+            (self.width - 4, self.height // 2 + 30),
+            (self.width - 56, self.height - 10),
+            (self.width - 48, self.height // 2 + 10),
+        ]
+        pygame.draw.polygon(surf, (52, 24, 96), wing_left)
+        pygame.draw.polygon(surf, (52, 24, 96), wing_right)
+        pygame.draw.polygon(surf, (112, 42, 186), shell)
+        pygame.draw.polygon(surf, (226, 142, 255), shell, 3)
         pygame.draw.polygon(
             surf,
-            (30, 24, 52),
+            (22, 18, 44),
             [
                 (38, 22),
                 (self.width - 38, 22),
@@ -664,18 +898,37 @@ class BossEnemy(pygame.sprite.Sprite):
                 (26, self.height // 2),
             ],
         )
-        pygame.draw.rect(surf, (255, 210, 90), (self.width // 2 - 16, self.height // 2 - 10, 32, 20), border_radius=6)
+        pygame.draw.polygon(
+            surf,
+            (76, 42, 126),
+            [
+                (self.width // 2, 18),
+                (self.width // 2 + 58, self.height // 2),
+                (self.width // 2, self.height - 18),
+                (self.width // 2 - 58, self.height // 2),
+            ],
+            2,
+        )
+        core_rect = pygame.Rect(self.width // 2 - 20, self.height // 2 - 13, 40, 26)
+        pygame.draw.rect(surf, (255, 190, 86), core_rect, border_radius=8)
+        pygame.draw.rect(surf, (255, 238, 176), core_rect.inflate(-8, -8), border_radius=5)
         core_r = 7 + pulse
-        pygame.draw.circle(surf, (255, 160, 120), (self.width // 2, self.height // 2), core_r + 2)
+        _glow_circle(surf, (255, 132, 100), (self.width // 2, self.height // 2), core_r + 9, layers=2, alpha=70)
+        pygame.draw.circle(surf, (255, 150, 112), (self.width // 2, self.height // 2), core_r + 2)
         pygame.draw.circle(surf, (255, 236, 188), (self.width // 2, self.height // 2), core_r)
-        pygame.draw.circle(surf, (70, 235, 255), (28, self.height // 2), 8 + (pulse % 2))
-        pygame.draw.circle(surf, (70, 235, 255), (self.width - 28, self.height // 2), 8 + (pulse % 2))
-        pygame.draw.rect(surf, (138, 90, 210), (self.width // 2 - 54, self.height - 26, 108, 8), border_radius=4)
-        pygame.draw.rect(surf, (210, 160, 250), (self.width // 2 - 54, self.height - 26, 108, 8), 1, border_radius=4)
-        pygame.draw.rect(surf, (74, 50, 126), (14, self.height // 2 - 8, 16, 16), border_radius=4)
-        pygame.draw.rect(surf, (74, 50, 126), (self.width - 30, self.height // 2 - 8, 16, 16), border_radius=4)
-        pygame.draw.circle(surf, (255, 170, 90), (22, self.height // 2), 3 + (pulse % 2))
-        pygame.draw.circle(surf, (255, 170, 90), (self.width - 22, self.height // 2), 3 + (pulse % 2))
+        for x in (30, self.width - 30):
+            _glow_circle(surf, (70, 235, 255), (x, self.height // 2), 13 + pulse, layers=2, alpha=48)
+            pygame.draw.circle(surf, (70, 235, 255), (x, self.height // 2), 8 + (pulse % 2))
+            pygame.draw.circle(surf, (230, 255, 255), (x, self.height // 2), 3)
+        for x in (24, self.width - 24):
+            pygame.draw.rect(surf, (74, 50, 126), (x - 9, self.height // 2 - 8, 18, 16), border_radius=5)
+            pygame.draw.rect(surf, (210, 160, 250), (x - 9, self.height // 2 - 8, 18, 16), 1, border_radius=5)
+            pygame.draw.circle(surf, (255, 170, 90), (x, self.height // 2), 3 + (pulse % 2))
+        engine = pygame.Rect(self.width // 2 - 60, self.height - 27, 120, 9)
+        pygame.draw.rect(surf, (126, 82, 206), engine, border_radius=5)
+        pygame.draw.rect(surf, (218, 172, 255), engine, 1, border_radius=5)
+        for x in range(self.width // 2 - 48, self.width // 2 + 49, 24):
+            pygame.draw.circle(surf, (255, 120, 120), (x, self.height - 22), 2 + pulse % 2)
         return surf
 
     def _phase_from_health(self):
@@ -1044,7 +1297,12 @@ class FloatingText(pygame.sprite.Sprite):
         self.font = pygame.font.SysFont(None, 22)
         self.image = self.font.render(text, True, color)
         self.image.set_alpha(255)
-        self.rect = self.image.get_rect(center=(x,y))
+        self.rect = self.image.get_rect(center=(x, y))
+        self.base_x = float(x)
+        self.base_y = float(y)
+        self.rise_px = random.uniform(20.0, 32.0)
+        self.sway_amp = random.uniform(1.2, 3.8)
+        self.sway_phase = random.uniform(0.0, math.tau)
 
     def update(self, dt=None):
         now = pygame.time.get_ticks()
@@ -1052,10 +1310,13 @@ class FloatingText(pygame.sprite.Sprite):
         if elapsed > self.lifetime:
             self.kill()
             return
-        self.rect.y -= 0.4 * (dt if dt else 16)
         prog = elapsed / self.lifetime
-        a = max(0, 255 - int(prog*255))
-        self.image.set_alpha(a)
+        eased = 1.0 - (1.0 - prog) * (1.0 - prog)
+        sway = math.sin(prog * math.tau * 1.3 + self.sway_phase) * self.sway_amp
+        self.rect.centerx = int(self.base_x + sway)
+        self.rect.centery = int(self.base_y - self.rise_px * eased)
+        alpha = int(max(0, 255 * (1.0 - prog ** 1.35)))
+        self.image.set_alpha(alpha)
 
 
 class Explosion(pygame.sprite.Sprite):
@@ -1076,6 +1337,7 @@ class Explosion(pygame.sprite.Sprite):
         self.center = center
         self.image = pygame.Surface((self.max_radius * 2, self.max_radius * 2), pygame.SRCALPHA)
         self.rect = self.image.get_rect(center=center)
+        self.spark_seed = random.uniform(0.0, math.tau)
 
     def update(self, dt=None):
         now = pygame.time.get_ticks()
@@ -1091,4 +1353,30 @@ class Explosion(pygame.sprite.Sprite):
         inner_alpha = max(1, 120 - int(progress * 120))
         ring_w = max(1, int(6 * (1 - progress)))
         pygame.draw.circle(self.image, (*self.outer_rgb, outer_alpha), center, radius, ring_w)
-        pygame.draw.circle(self.image, (*self.inner_rgb, inner_alpha), center, max(1, int(radius * 0.55)))
+        pygame.draw.circle(self.image, (*self.inner_rgb, inner_alpha), center, max(1, int(radius * 0.58)))
+
+        if progress > 0.14:
+            secondary_alpha = max(0, 92 - int(progress * 110))
+            if secondary_alpha > 0:
+                pygame.draw.circle(
+                    self.image,
+                    (*self.outer_rgb, secondary_alpha),
+                    center,
+                    max(1, int(radius * 1.2)),
+                    1,
+                )
+
+        spark_count = 4 if settings.VISUAL_QUALITY == "Performance" else 7
+        spark_radius = max(2, int(radius * 0.72) + int(progress * 10))
+        spark_alpha = max(0, 155 - int(progress * 160))
+        if spark_alpha > 0:
+            for idx in range(spark_count):
+                ang = self.spark_seed + progress * 9.4 + idx * (math.tau / spark_count)
+                px = center[0] + int(math.cos(ang) * spark_radius)
+                py = center[1] + int(math.sin(ang) * spark_radius)
+                pygame.draw.circle(
+                    self.image,
+                    (255, min(255, self.inner_rgb[1] + 40), min(255, self.inner_rgb[2] + 36), spark_alpha),
+                    (px, py),
+                    1 if idx % 2 == 0 else 2,
+                )

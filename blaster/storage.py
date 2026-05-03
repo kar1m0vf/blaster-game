@@ -83,9 +83,10 @@ def _default_user_settings() -> Dict:
         "difficulty": "Normal",
         "visual_quality": "Balanced",
         "master_volume": 0.6,
-        "fullscreen": False,
+        "fullscreen": True,
         "fps_cap": settings.FPS,
         "show_fps": True,
+        "selected_ship": "interceptor",
     }
 
 
@@ -118,6 +119,10 @@ def _sanitize_user_settings(raw: Dict) -> Dict:
 
     show_fps = bool(payload.get("show_fps", defaults["show_fps"]))
 
+    selected_ship = payload.get("selected_ship", defaults["selected_ship"])
+    if selected_ship not in ("interceptor", "vanguard", "lancer"):
+        selected_ship = defaults["selected_ship"]
+
     return {
         "difficulty": difficulty,
         "visual_quality": visual_quality,
@@ -125,6 +130,7 @@ def _sanitize_user_settings(raw: Dict) -> Dict:
         "fullscreen": fullscreen,
         "fps_cap": fps_cap,
         "show_fps": show_fps,
+        "selected_ship": selected_ship,
     }
 
 
