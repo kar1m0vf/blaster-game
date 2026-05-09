@@ -2,6 +2,7 @@ import pygame
 import random
 import math
 from . import settings
+from .ui import render_text_fit
 
 _BASE_FRAME_MS = 16.6667
 
@@ -90,7 +91,7 @@ class Particle(pygame.sprite.Sprite):
 
 
 class Player(pygame.sprite.Sprite):
-    def __init__(self, width=60, height=68, style="classic"):
+    def __init__(self, width=66, height=74, style="classic"):
         super().__init__()
         self.width = width
         self.height = height
@@ -104,7 +105,7 @@ class Player(pygame.sprite.Sprite):
         self.image = self._frames[self._frame_idx]
         self.rect = self.image.get_rect()
         self.rect.centerx = settings.WIDTH // 2
-        self.rect.bottom = settings.HEIGHT - 8
+        self.rect.bottom = settings.HEIGHT - 24
         self.pos_x = float(self.rect.x)
         self.speed = settings.PLAYER_SPEED
         self.shoot_cooldown = 250
@@ -1458,7 +1459,7 @@ class FloatingText(pygame.sprite.Sprite):
         self.start = pygame.time.get_ticks()
         self.lifetime = lifetime
         self.font = pygame.font.SysFont(None, 22)
-        self.image = self.font.render(text, True, color)
+        self.image = render_text_fit(self.font, text, color, 180)
         self.image.set_alpha(255)
         self.rect = self.image.get_rect(center=(x, y))
         self.base_x = float(x)

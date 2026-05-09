@@ -1,18 +1,62 @@
 import json
 import os
+import sys
 from typing import Dict, List, Optional
 
 from . import settings
 
+APP_NAME = "Blaster"
 ROOT = os.path.dirname(os.path.dirname(__file__))
-DATA_DIR = os.path.join(ROOT, 'data')
+LEGACY_DATA_DIR = os.path.join(ROOT, 'data')
+LEGACY_HIGHSCORES_FILE = os.path.join(LEGACY_DATA_DIR, 'highscores.json')
+LEGACY_SETTINGS_FILE = os.path.join(LEGACY_DATA_DIR, 'settings.json')
+
+
+def _default_data_dir() -> str:
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+        if base:
+            return os.path.join(base, APP_NAME)
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~/Library/Application Support"), APP_NAME)
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, APP_NAME.lower())
+
+
+DEFAULT_DATA_DIR = _default_data_dir()
+DATA_DIR = os.environ.get("BLASTER_DATA_DIR", DEFAULT_DATA_DIR)
 HIGHSCORES_FILE = os.path.join(DATA_DIR, 'highscores.json')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 DEFAULT_PLAYER_NAME = "Player"
 MAX_NAME_LEN = 16
 
+
 def _ensure_dir():
     os.makedirs(DATA_DIR, exist_ok=True)
+
+
+def _should_migrate_from_legacy(target_file: str, filename: str) -> bool:
+    expected_target = os.path.join(DATA_DIR, filename)
+    return (
+        os.path.abspath(DATA_DIR) == os.path.abspath(DEFAULT_DATA_DIR)
+        and os.path.abspath(target_file) == os.path.abspath(expected_target)
+        and os.path.abspath(DATA_DIR) != os.path.abspath(LEGACY_DATA_DIR)
+    )
+
+
+def _migrate_legacy_file(target_file: str, legacy_file: str, filename: str) -> None:
+    if not _should_migrate_from_legacy(target_file, filename):
+        return
+    if os.path.exists(target_file) or not os.path.exists(legacy_file):
+        return
+    try:
+        with open(legacy_file, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        _ensure_dir()
+        with open(target_file, "w", encoding="utf-8") as f:
+            json.dump(raw, f, ensure_ascii=False, indent=2)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
 
 
 def normalize_player_name(name: str) -> str:
@@ -50,6 +94,7 @@ def _sanitize_scores(scores: List[Dict], max_entries: Optional[int] = None) -> L
 
 def load_highscores() -> List[Dict]:
     _ensure_dir()
+    _migrate_legacy_file(HIGHSCORES_FILE, LEGACY_HIGHSCORES_FILE, 'highscores.json')
     if not os.path.exists(HIGHSCORES_FILE):
         return []
     try:
@@ -90,6 +135,22 @@ def _default_user_settings() -> Dict:
     }
 
 
+def _parse_bool(value, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value in (0, 1):
+            return bool(value)
+        return bool(default)
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "y", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "n", "off"}:
+            return False
+    return bool(default)
+
+
 def _sanitize_user_settings(raw: Dict) -> Dict:
     defaults = _default_user_settings()
     payload = raw if isinstance(raw, dict) else {}
@@ -108,7 +169,7 @@ def _sanitize_user_settings(raw: Dict) -> Dict:
         master_volume = defaults["master_volume"]
     master_volume = max(0.0, min(1.0, master_volume))
 
-    fullscreen = bool(payload.get("fullscreen", defaults["fullscreen"]))
+    fullscreen = _parse_bool(payload.get("fullscreen", defaults["fullscreen"]), defaults["fullscreen"])
 
     try:
         fps_cap = int(payload.get("fps_cap", defaults["fps_cap"]))
@@ -117,7 +178,7 @@ def _sanitize_user_settings(raw: Dict) -> Dict:
     if fps_cap not in settings.FPS_OPTIONS:
         fps_cap = defaults["fps_cap"]
 
-    show_fps = bool(payload.get("show_fps", defaults["show_fps"]))
+    show_fps = _parse_bool(payload.get("show_fps", defaults["show_fps"]), defaults["show_fps"])
 
     selected_ship = payload.get("selected_ship", defaults["selected_ship"])
     if selected_ship not in ("interceptor", "vanguard", "lancer"):
@@ -136,6 +197,7 @@ def _sanitize_user_settings(raw: Dict) -> Dict:
 
 def load_user_settings() -> Dict:
     _ensure_dir()
+    _migrate_legacy_file(SETTINGS_FILE, LEGACY_SETTINGS_FILE, 'settings.json')
     if not os.path.exists(SETTINGS_FILE):
         return _default_user_settings()
     try:

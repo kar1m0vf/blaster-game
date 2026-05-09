@@ -33,39 +33,47 @@ def _lerp_color(c1, c2, t):
 
 def _build_gradient(width, height):
     surf = pygame.Surface((width, height)).convert()
-    top = (3, 4, 10)
-    middle = (6, 10, 20)
-    bottom = (3, 5, 10)
+    top = (5, 13, 30)
+    middle = (3, 7, 17)
+    bottom = (1, 3, 8)
     for y in range(height):
         t = y / max(1, height - 1)
-        if t < 0.48:
-            col = _lerp_color(top, middle, t / 0.48)
+        if t < 0.50:
+            col = _lerp_color(top, middle, t / 0.50)
         else:
-            col = _lerp_color(middle, bottom, (t - 0.48) / 0.52)
+            col = _lerp_color(middle, bottom, (t - 0.50) / 0.50)
         pygame.draw.line(surf, col, (0, y), (width, y))
 
-    horizon = pygame.Surface((width, height), pygame.SRCALPHA)
-    horizon_y = int(height * 0.58)
-    rect = pygame.Rect(-width // 5, horizon_y - 96, width + width // 3, 210)
-    pygame.draw.ellipse(horizon, (30, 68, 106, 20), rect)
-    pygame.draw.ellipse(horizon, (14, 30, 54, 34), rect.inflate(120, 70))
-    pygame.draw.line(horizon, (74, 132, 176, 24), (0, horizon_y), (width, horizon_y), 1)
-    surf.blit(horizon, (0, 0))
+    # Keep the combat lane readable: side falloff gives depth without a central glow.
+    side_falloff = pygame.Surface((width, height), pygame.SRCALPHA)
+    left_rect = pygame.Rect(-width // 3, int(height * 0.12), int(width * 0.62), int(height * 0.62))
+    right_rect = pygame.Rect(int(width * 0.74), int(height * 0.04), int(width * 0.42), int(height * 0.44))
+    pygame.draw.ellipse(side_falloff, (32, 86, 136, 18), left_rect)
+    pygame.draw.ellipse(side_falloff, (116, 76, 150, 14), right_rect)
+    surf.blit(side_falloff, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
     return surf
 
 
 def _build_nebula_layer(width, height, count, seed):
     nebula = pygame.Surface((width, height), pygame.SRCALPHA)
     rng = random.Random(seed)
-    for _ in range(count):
-        radius = rng.randint(120, 260)
-        x = rng.randint(-radius // 2, width + radius // 2)
-        y = rng.randint(-radius // 3, int(height * 0.78))
+    anchors = (
+        (-0.08, 0.22),
+        (1.02, 0.20),
+        (0.10, 0.64),
+        (0.92, 0.56),
+    )
+    for idx in range(count):
+        radius = rng.randint(150, 290)
+        ax, ay = anchors[idx % len(anchors)]
+        x = int(width * ax + rng.uniform(-40, 40))
+        y = int(height * ay + rng.uniform(-34, 34))
         color = rng.choice(
             [
-                (42, 78, 130, 8),
-                (32, 96, 106, 7),
-                (102, 70, 132, 6),
+                (48, 112, 174, 10),
+                (34, 132, 128, 8),
+                (116, 78, 158, 8),
+                (186, 106, 74, 5),
             ]
         )
         pygame.draw.ellipse(nebula, color, (x - radius, y - radius // 2, radius * 2, radius))
@@ -83,25 +91,29 @@ def _build_aurora_layer(width, height, seed):
     layer = pygame.Surface((width, height), pygame.SRCALPHA)
     rng = random.Random(seed)
     palette = [
-        (48, 104, 162, 7),
-        (44, 132, 128, 6),
-        (106, 88, 154, 5),
-        (80, 120, 154, 5),
+        (54, 128, 196, 6),
+        (44, 148, 138, 5),
+        (116, 84, 156, 5),
+        (82, 132, 176, 5),
     ]
-    ribbons = 3 if settings.VISUAL_QUALITY == "Performance" else 4
-    width_step = max(52, width // 14)
-    blob = pygame.Surface((140, 46), pygame.SRCALPHA)
+    ribbons = 2 if settings.VISUAL_QUALITY == "Performance" else 3
+    width_step = max(70, width // 10)
+    blob = pygame.Surface((180, 54), pygame.SRCALPHA)
     for i in range(ribbons):
         color = palette[i % len(palette)]
-        base_y = rng.randint(46, int(height * 0.50))
-        amp = rng.uniform(10.0, 28.0)
+        base_y = rng.choice((rng.randint(42, int(height * 0.24)), rng.randint(int(height * 0.52), int(height * 0.72))))
+        amp = rng.uniform(6.0, 18.0)
         freq = rng.uniform(0.0055, 0.0105)
         phase = rng.uniform(0.0, math.tau)
         for x in range(-100, width + 120, width_step):
             y = int(base_y + math.sin(x * freq + phase) * amp)
             blob.fill((0, 0, 0, 0))
-            pygame.draw.ellipse(blob, color, (0, 0, 140, 46))
-            layer.blit(blob, (x - 70, y - 23), special_flags=pygame.BLEND_RGBA_ADD)
+            pygame.draw.ellipse(blob, color, (0, 0, 180, 54))
+            if width * 0.28 < x < width * 0.72:
+                blob.set_alpha(80)
+            else:
+                blob.set_alpha(150)
+            layer.blit(blob, (x - 90, y - 27), special_flags=pygame.BLEND_RGBA_ADD)
     return layer
 
 
@@ -212,22 +224,24 @@ def _get_depth_stars(width, height, count):
 def _draw_planet(surf, now):
     width = surf.get_width()
     height = surf.get_height()
-    radius = int(min(width, height) * 0.13)
+    radius = int(min(width, height) * 0.125)
     cx = int(width * 0.83 + math.sin(now * 0.00008) * 9)
     cy = int(height * 0.22 + math.cos(now * 0.00006) * 6)
-    planet = pygame.Surface((radius * 2 + 18, radius * 2 + 18), pygame.SRCALPHA)
+    planet = pygame.Surface((radius * 3 + 28, radius * 3 + 28), pygame.SRCALPHA)
     pc = planet.get_width() // 2
+    pygame.draw.circle(planet, (72, 150, 220, 7), (pc, pc), int(radius * 1.18))
     for r in range(radius, 0, -2):
         t = r / max(1, radius)
-        col = _lerp_color((10, 24, 46), (34, 74, 112), 1.0 - t)
-        alpha = int(8 + (1.0 - t) * 18)
+        col = _lerp_color((10, 24, 50), (34, 82, 124), 1.0 - t)
+        alpha = int(9 + (1.0 - t) * 20)
         pygame.draw.circle(planet, (*col, alpha), (pc, pc), r)
-    pygame.draw.circle(planet, (94, 146, 188, 28), (pc, pc), radius, 1)
+    pygame.draw.circle(planet, (112, 176, 214, 38), (pc, pc), radius, 1)
+    pygame.draw.circle(planet, (255, 214, 132, 9), (pc - radius // 3, pc - radius // 3), max(2, radius // 4))
 
     ring = pygame.Surface(planet.get_size(), pygame.SRCALPHA)
     ring_rect = pygame.Rect(pc - int(radius * 1.36), pc - int(radius * 0.34), int(radius * 2.72), int(radius * 0.68))
-    pygame.draw.ellipse(ring, (86, 144, 190, 20), ring_rect, 1)
-    pygame.draw.ellipse(ring, (170, 206, 224, 8), ring_rect.inflate(-18, -8), 1)
+    pygame.draw.ellipse(ring, (112, 188, 230, 22), ring_rect, 1)
+    pygame.draw.ellipse(ring, (255, 214, 132, 7), ring_rect.inflate(-18, -8), 1)
     planet.blit(ring, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
     surf.blit(planet, (cx - pc, cy - pc), special_flags=pygame.BLEND_RGBA_ADD)
 
@@ -238,11 +252,11 @@ def _draw_depth_stars(surf, now, dt):
     if settings.VISUAL_QUALITY == "Performance":
         count = 14
     elif settings.VISUAL_QUALITY == "Balanced":
-        count = 18
+        count = 16
     elif settings.VISUAL_QUALITY == "Cinematic":
-        count = 26
+        count = 20
     else:
-        count = 34
+        count = 24
 
     max_radius = math.hypot(width, height) * 0.58
     stars = _get_depth_stars(width, height, count)
@@ -261,8 +275,8 @@ def _draw_depth_stars(surf, now, dt):
         tail = max(4, int(18 * star["radius"] * star["depth"]))
         tx = x - math.cos(angle) * tail
         ty = y - math.sin(angle) * tail * 0.72
-        alpha = int(min(112, star["brightness"] * star["radius"]))
-        col = (116, min(230, 162 + alpha // 6), 228, alpha)
+        alpha = int(min(84, star["brightness"] * star["radius"] * 0.88))
+        col = (116, min(224, 160 + alpha // 6), 232, alpha)
         pygame.draw.line(layer, col, (int(tx), int(ty)), (int(x), int(y)), max(1, int(star["radius"] * 3)))
     surf.blit(layer, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
@@ -273,36 +287,31 @@ def _draw_perspective_grid(surf, now):
 
     width = surf.get_width()
     height = surf.get_height()
-    horizon = int(height * 0.61)
-    vanishing_x = width // 2 + int(math.sin(now * 0.00018) * width * 0.035)
+    horizon = int(height * 0.69)
+    vanishing_x = width // 2 + int(math.sin(now * 0.00018) * width * 0.025)
     grid = pygame.Surface((width, height), pygame.SRCALPHA)
 
     floor_top = horizon
     floor_bottom = height + 60
     pulse = 0.5 + 0.5 * math.sin(now * 0.0016)
-    for idx in range(1, 13):
-        t = idx / 12
+    for idx in range(1, 10):
+        t = idx / 9
         y = int(floor_top + (floor_bottom - floor_top) * (t * t))
-        alpha = int(9 + 34 * t)
-        pygame.draw.line(grid, (58, 126, 172, alpha), (0, y), (width, y), 1)
+        alpha = int(7 + 24 * t)
+        pygame.draw.line(grid, (54, 128, 162, alpha), (0, y), (width, y), 1)
 
-    lane_count = 14
+    lane_count = 10
     for idx in range(lane_count + 1):
         lane = idx / lane_count
         x_bottom = int(_lerp(-width * 0.22, width * 1.22, lane))
-        alpha = 12 + int(24 * abs(lane - 0.5) * 2)
-        pygame.draw.line(grid, (54, 146, 178, alpha), (vanishing_x, horizon), (x_bottom, floor_bottom), 1)
+        alpha = 8 + int(18 * abs(lane - 0.5) * 2)
+        pygame.draw.line(grid, (46, 136, 154, alpha), (vanishing_x, horizon), (x_bottom, floor_bottom), 1)
 
     road_w = int(width * 0.26)
     left = int(width * 0.5 - road_w + math.sin(now * 0.00036) * 12)
     right = int(width * 0.5 + road_w + math.sin(now * 0.00036) * 12)
     for x in (left, right):
-        pygame.draw.line(grid, (96, 210, 196, int(36 + pulse * 30)), (vanishing_x, horizon), (x, floor_bottom), 2)
-
-    glow = pygame.Surface((width, height), pygame.SRCALPHA)
-    horizon_rect = pygame.Rect(-width // 4, horizon - 34, width + width // 2, 88)
-    pygame.draw.ellipse(glow, (38, 94, 136, 13), horizon_rect)
-    grid.blit(glow, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+        pygame.draw.line(grid, (86, 220, 196, int(22 + pulse * 18)), (vanishing_x, horizon), (x, floor_bottom), 1)
     surf.blit(grid, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
 
@@ -354,15 +363,15 @@ def draw_background(surf, stars, dt):
 
     aura_shift_x = int(math.sin(now * 0.00023) * 14)
     aura_shift_y = int(math.cos(now * 0.00017) * 6)
-    aura_alpha = int(18 + 8 * math.sin(now * 0.0007))
-    aurora.set_alpha(max(9, min(30, aura_alpha)))
+    aura_alpha = int(13 + 5 * math.sin(now * 0.0007))
+    aurora.set_alpha(max(6, min(20, aura_alpha)))
     surf.blit(aurora, (aura_shift_x, aura_shift_y), special_flags=pygame.BLEND_RGBA_ADD)
     _draw_planet(surf, now)
     _draw_depth_stars(surf, now, dt)
 
     # Final dark pass to keep contrast and deep-space feel.
     shade = pygame.Surface((width, height), pygame.SRCALPHA)
-    shade.fill((0, 0, 0, 26))
+    shade.fill((0, 0, 0, 22))
     surf.blit(shade, (0, 0))
     _draw_perspective_grid(surf, now)
 
@@ -379,10 +388,10 @@ def draw_background(surf, stars, dt):
             if p["y"] > height + 2:
                 p["y"] = -1
             flicker = 0.62 + 0.38 * math.sin(now * 0.0018 + p["phase"])
-            glow = int(max(100, min(255, p["brightness"] * flicker)))
+            glow = int(max(84, min(205, p["brightness"] * flicker)))
             pygame.draw.circle(
                 surf,
-                (glow, min(220, glow + 18), min(238, glow + 32)),
+                (glow, min(210, glow + 14), min(228, glow + 28)),
                 (int(p["x"]), int(p["y"])),
                 p["size"],
             )
@@ -402,12 +411,12 @@ def draw_background(surf, stars, dt):
         if s['x'] > width + 2:
             s['x'] = -1
         twinkle = 0.65 + 0.35 * math.sin(now * 0.002 * s['twinkle_speed'] + s['twinkle_phase'])
-        col = max(82, min(220, int((132 * s['z'] + 42) * twinkle)))
+        col = max(84, min(218, int((132 * s['z'] + 44) * twinkle)))
         pos = (int(s['x']), int(s['y']))
-        pygame.draw.circle(surf, (col, min(225, col + 10), min(236, col + 24)), pos, s['size'])
+        pygame.draw.circle(surf, (col, min(226, col + 10), min(242, col + 26)), pos, s['size'])
         if settings.ENABLE_STAR_GLOW and s['size'] > 1:
-            halo = min(230, col + 34)
-            pygame.draw.circle(surf, (halo, min(236, halo + 8), 246), pos, s['size'] + 2, 1)
+            halo = min(232, col + 32)
+            pygame.draw.circle(surf, (halo, min(238, halo + 8), 248), pos, s['size'] + 2, 1)
 
     if scanlines is not None:
         surf.blit(scanlines, (0, 0))
@@ -415,8 +424,81 @@ def draw_background(surf, stars, dt):
         surf.blit(_get_vignette_layer(width, height), (0, 0))
 
 
-def draw_text(surf, font, text, x, y, color=(255, 255, 255)):
-    img = font.render(text, True, color)
+def fit_text_to_width(font, text, max_width, suffix="..."):
+    text = str(text)
+    if max_width is None or max_width <= 0 or font.size(text)[0] <= max_width:
+        return text
+
+    if font.size(suffix)[0] > max_width:
+        for end in range(len(suffix), 0, -1):
+            candidate = suffix[:end]
+            if font.size(candidate)[0] <= max_width:
+                return candidate
+        return ""
+
+    low = 0
+    high = len(text)
+    while low < high:
+        mid = (low + high + 1) // 2
+        candidate = text[:mid].rstrip() + suffix
+        if font.size(candidate)[0] <= max_width:
+            low = mid
+        else:
+            high = mid - 1
+
+    if low <= 0:
+        return suffix
+    return text[:low].rstrip() + suffix
+
+
+def render_text_fit(
+    font,
+    text,
+    color,
+    max_width=None,
+    shadow=True,
+    shadow_color=(2, 5, 14),
+    shadow_offset=(2, 2),
+    outline=True,
+):
+    shadow_dx = max(0, int(shadow_offset[0])) if shadow else 0
+    shadow_dy = max(0, int(shadow_offset[1])) if shadow else 0
+    outline_pad = 1 if outline else 0
+    reserved_width = outline_pad * 2 + shadow_dx
+    fit_width = None if max_width is None else max(1, max_width - reserved_width)
+    fitted = fit_text_to_width(font, text, fit_width)
+    text_img = font.render(fitted, True, color)
+    if not shadow and not outline:
+        return text_img
+
+    width = max(1, text_img.get_width() + outline_pad * 2 + shadow_dx)
+    height = max(1, text_img.get_height() + outline_pad * 2 + shadow_dy)
+    surf = pygame.Surface((width, height), pygame.SRCALPHA)
+
+    if shadow:
+        shadow_img = font.render(fitted, True, shadow_color)
+        surf.blit(shadow_img, (outline_pad + shadow_dx, outline_pad + shadow_dy))
+
+    if outline:
+        outline_img = font.render(fitted, True, shadow_color)
+        for ox, oy in (
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (-1, 0),
+            (1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+        ):
+            surf.blit(outline_img, (outline_pad + ox, outline_pad + oy))
+
+    surf.blit(text_img, (outline_pad, outline_pad))
+    return surf
+
+
+def draw_text(surf, font, text, x, y, color=(255, 255, 255), max_width=None, shadow=True, outline=True):
+    img = render_text_fit(font, text, color, max_width, shadow=shadow, outline=outline)
     surf.blit(img, (x, y))
 
 

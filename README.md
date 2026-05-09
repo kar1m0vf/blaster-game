@@ -17,14 +17,20 @@ Arcade 2D shooter built with Pygame.
 - Cinematic depth-entry attack runs for regular enemies
 - Wave progression with special enemies and boss phases
 - Death replay (5 seconds, skippable)
-- Local high scores (`data/highscores.json`)
-- Persistent user settings (`data/settings.json`)
+- Local high scores stored in the user's app data directory
+- Persistent user settings with migration from older `data/*.json` files
 
 ## Screenshots
 
-![Menu](docs/media/preview-menu.svg)
-![Battle](docs/media/preview-battle.svg)
-![Boss](docs/media/preview-boss.svg)
+![Menu](docs/media/preview-menu.png)
+![Battle](docs/media/preview-battle.png)
+![Boss](docs/media/preview-boss.png)
+
+These screenshots are captured from the actual Pygame renderer:
+
+```powershell
+python tools\capture_readme_screenshots.py
+```
 
 ## Controls
 
@@ -62,6 +68,16 @@ python run_game.py
 pytest -q
 ```
 
+## User Data
+
+Runtime settings and high scores are stored outside the source tree:
+
+- Windows: `%APPDATA%\Blaster`
+- macOS: `~/Library/Application Support/Blaster`
+- Linux: `$XDG_DATA_HOME/blaster` or `~/.local/share/blaster`
+
+Existing `data/settings.json` and `data/highscores.json` files are treated as legacy data and migrated on first run when no user-data file exists yet.
+
 ## Build Release (.exe + .zip)
 
 Use script:
@@ -82,6 +98,7 @@ It will:
 
 - Main entrypoint is `run_game.py`.
 - `blaster_game.py` is an old prototype file and is not used for current gameplay.
+- Current development target is the Python/Pygame version. Any Godot or Unity work should live in a separate future project.
 
 ## Legal
 

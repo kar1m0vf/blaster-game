@@ -95,3 +95,50 @@ def test_user_settings_sanitization(tmp_path, monkeypatch):
     assert out["fullscreen"] is True
     assert out["fps_cap"] == storage.settings.FPS
     assert out["show_fps"] is False
+
+
+def test_user_settings_boolean_string_sanitization(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage, 'DATA_DIR', str(tmp_path))
+    monkeypatch.setattr(storage, 'SETTINGS_FILE', str(tmp_path / 'settings.json'))
+
+    out = storage.save_user_settings(
+        {
+            "fullscreen": "false",
+            "show_fps": "off",
+        }
+    )
+    assert out["fullscreen"] is False
+    assert out["show_fps"] is False
+
+    out2 = storage.save_user_settings(
+        {
+            "fullscreen": "yes",
+            "show_fps": "on",
+        }
+    )
+    assert out2["fullscreen"] is True
+    assert out2["show_fps"] is True
+
+
+def test_legacy_settings_migrate_to_user_data_dir(tmp_path, monkeypatch):
+    app_dir = tmp_path / "appdata"
+    legacy_dir = tmp_path / "legacy_data"
+    legacy_dir.mkdir()
+    (legacy_dir / "settings.json").write_text(
+        '{"difficulty":"Hard","visual_quality":"Performance","fullscreen":false,"show_fps":false}',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(storage, 'DEFAULT_DATA_DIR', str(app_dir))
+    monkeypatch.setattr(storage, 'DATA_DIR', str(app_dir))
+    monkeypatch.setattr(storage, 'SETTINGS_FILE', str(app_dir / 'settings.json'))
+    monkeypatch.setattr(storage, 'LEGACY_DATA_DIR', str(legacy_dir))
+    monkeypatch.setattr(storage, 'LEGACY_SETTINGS_FILE', str(legacy_dir / 'settings.json'))
+
+    loaded = storage.load_user_settings()
+
+    assert loaded["difficulty"] == "Hard"
+    assert loaded["visual_quality"] == "Performance"
+    assert loaded["fullscreen"] is False
+    assert loaded["show_fps"] is False
+    assert (app_dir / "settings.json").exists()

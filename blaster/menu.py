@@ -4,7 +4,7 @@ import pygame
 
 from . import settings
 from .storage import load_highscores
-from .ui import draw_background, make_stars, ui_microtext
+from .ui import draw_background, make_stars, render_text_fit, ui_microtext
 
 _MENU_STARS = None
 _NOTICE_FONT = None
@@ -42,7 +42,7 @@ def _draw_footer_notice(screen):
         _NOTICE_FONT = pygame.font.SysFont(None, 15)
     if _NOTICE_TEXT is None:
         _NOTICE_TEXT = ui_microtext()
-    tag = _NOTICE_FONT.render(_NOTICE_TEXT, True, (120, 138, 164))
+    tag = render_text_fit(_NOTICE_FONT, _NOTICE_TEXT, (120, 138, 164), screen.get_width() - 16)
     screen.blit(tag, (8, screen.get_height() - 16))
 
 
@@ -120,11 +120,11 @@ def _draw_title_showcase(screen, panel, now, pulse):
     ]
     y = bay.height - 82
     for text, color in status:
-        img = small.render(text, True, color)
+        img = render_text_fit(small, text, color, bay.width - 36)
         bay_surf.blit(img, (18, y))
         y += 19
 
-    launch = status_font.render("ARCADE RUN READY", True, (255, 222, 146))
+    launch = render_text_fit(status_font, "ARCADE RUN READY", (255, 222, 146), bay.width - 36)
     bay_surf.blit(launch, (bay.width - launch.get_width() - 18, bay.height - 38))
     screen.blit(bay_surf, bay.topleft)
 
@@ -149,24 +149,26 @@ def draw_menu(screen, font, title, items, selected_idx, dt=16, subtitle="", desc
     screen.blit(shadow, (panel.x - 13, panel.y - 5))
 
     panel_surf = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
-    panel_surf.fill((8, 16, 34, 188))
-    pygame.draw.rect(panel_surf, (90, 146, 226, 175), panel_surf.get_rect(), 2, border_radius=16)
+    panel_surf.fill((8, 18, 40, 204))
+    pygame.draw.rect(panel_surf, (112, 178, 255, 205), panel_surf.get_rect(), 2, border_radius=16)
     glow = pygame.Surface((panel.width, panel.height), pygame.SRCALPHA)
-    glow_alpha = int(20 + 30 * pulse)
-    pygame.draw.rect(glow, (82, 160, 255, glow_alpha), glow.get_rect(), 1, border_radius=16)
+    glow_alpha = int(34 + 44 * pulse)
+    pygame.draw.rect(glow, (94, 188, 255, glow_alpha), glow.get_rect(), 2, border_radius=16)
     panel_surf.blit(glow, (0, 0))
     header = pygame.Surface((panel.width - 20, 64), pygame.SRCALPHA)
     for y in range(header.get_height()):
         t = y / max(1, header.get_height() - 1)
-        col = _blend((38, 78, 148), (16, 36, 78), t)
-        pygame.draw.line(header, (*col, 104), (0, y), (header.get_width(), y))
-    pygame.draw.rect(header, (126, 188, 255, 130), header.get_rect(), 1, border_radius=12)
+        col = _blend((48, 104, 192), (18, 44, 96), t)
+        pygame.draw.line(header, (*col, 128), (0, y), (header.get_width(), y))
+    pygame.draw.rect(header, (154, 210, 255, 154), header.get_rect(), 1, border_radius=12)
     panel_surf.blit(header, (10, 10))
     screen.blit(panel_surf, panel.topleft)
 
-    title_shadow = font.render(title, True, (10, 18, 36))
+    title_max_width = panel.width - (500 if is_title else 80)
+    title_max_width = max(180, title_max_width)
+    title_shadow = render_text_fit(font, title, (10, 18, 36), title_max_width, shadow=False, outline=False)
     title_col = (236, 245, min(255, 245 + int(8 * pulse)))
-    title_surf = font.render(title, True, title_col)
+    title_surf = render_text_fit(font, title, title_col, title_max_width)
     tx = panel.left + 42 if is_title else sw // 2 - title_surf.get_width() // 2
     title_y = panel.top + 24
     screen.blit(title_shadow, (tx + 3, title_y + 3))
@@ -183,7 +185,7 @@ def draw_menu(screen, font, title, items, selected_idx, dt=16, subtitle="", desc
         subtitle_chip = pygame.Surface((min(panel.width - 80, 470), 28), pygame.SRCALPHA)
         subtitle_chip.fill((12, 26, 56, 166))
         pygame.draw.rect(subtitle_chip, (94, 150, 230, 120), subtitle_chip.get_rect(), 1, border_radius=8)
-        sub = font.render(subtitle, True, (184, 208, 240))
+        sub = render_text_fit(font, subtitle, (204, 224, 250), subtitle_chip.get_width() - 28)
         chip_x = panel.left + 42 if is_title else sw // 2 - subtitle_chip.get_width() // 2
         chip_y = title_y + 42
         screen.blit(subtitle_chip, (chip_x, chip_y))
@@ -213,15 +215,15 @@ def draw_menu(screen, font, title, items, selected_idx, dt=16, subtitle="", desc
         screen.blit(btn_shadow, (btn_rect.x, btn_rect.y + 3))
 
         btn_surf = pygame.Surface((btn_rect.width, btn_rect.height), pygame.SRCALPHA)
-        top_col = (26, 44, 82) if not is_selected else (48, 104, 206)
-        bottom_col = (14, 25, 48) if not is_selected else (22, 54, 124)
+        top_col = (28, 52, 96) if not is_selected else (62, 132, 244)
+        bottom_col = (14, 28, 56) if not is_selected else (24, 64, 148)
         for py in range(btn_h):
             t = py / max(1, btn_h - 1)
             pygame.draw.line(btn_surf, (*_blend(top_col, bottom_col, t), 228), (0, py), (btn_w, py))
         border = (144, 206, 255, 236) if is_selected else (98, 136, 190, 128)
         pygame.draw.rect(btn_surf, border, btn_surf.get_rect(), 1, border_radius=10)
         if is_selected:
-            pygame.draw.rect(btn_surf, (255, 214, 138, 210), pygame.Rect(0, 0, 5, btn_h), border_radius=3)
+            pygame.draw.rect(btn_surf, (255, 220, 132, 235), pygame.Rect(0, 0, 5, btn_h), border_radius=3)
             shine_w = 56
             shine_x = int((now * 0.22 + i * 48) % (btn_w + shine_w)) - shine_w
             shine = pygame.Surface((shine_w, btn_h), pygame.SRCALPHA)
@@ -232,7 +234,7 @@ def draw_menu(screen, font, title, items, selected_idx, dt=16, subtitle="", desc
             glow_ring = pygame.Surface((btn_w + 8, btn_h + 8), pygame.SRCALPHA)
             pygame.draw.rect(
                 glow_ring,
-                (110, 186, 255, int(52 + 46 * row_pulse)),
+                (126, 210, 255, int(72 + 58 * row_pulse)),
                 glow_ring.get_rect(),
                 2,
                 border_radius=12,
@@ -241,7 +243,7 @@ def draw_menu(screen, font, title, items, selected_idx, dt=16, subtitle="", desc
         screen.blit(btn_surf, btn_rect.topleft)
 
         txt_col = (255, 245, 220) if is_selected else (208, 220, 240)
-        text = font.render(item, True, txt_col)
+        text = render_text_fit(font, item, txt_col, btn_rect.width - 28)
         screen.blit(text, (btn_rect.centerx - text.get_width() // 2, btn_rect.centery - text.get_height() // 2))
         rects.append(btn_rect)
 
@@ -258,7 +260,7 @@ def draw_menu(screen, font, title, items, selected_idx, dt=16, subtitle="", desc
         pygame.draw.rect(desc_surf, (112, 162, 232, 120), desc_surf.get_rect(), 1, border_radius=8)
         screen.blit(desc_surf, desc_rect.topleft)
         desc_font = pygame.font.SysFont(None, 22)
-        desc_img = desc_font.render(desc_text, True, (186, 210, 240))
+        desc_img = render_text_fit(desc_font, desc_text, (208, 228, 250), desc_rect.width - 22)
         screen.blit(
             desc_img,
             (desc_rect.centerx - desc_img.get_width() // 2, desc_rect.centery - desc_img.get_height() // 2),
@@ -269,7 +271,7 @@ def draw_menu(screen, font, title, items, selected_idx, dt=16, subtitle="", desc
     hint_chip = pygame.Surface((min(panel.width - 76, 560), 30), pygame.SRCALPHA)
     hint_chip.fill((10, 22, 46, 160))
     pygame.draw.rect(hint_chip, (92, 146, 222, 108), hint_chip.get_rect(), 1, border_radius=9)
-    hint = font.render(footer_hint, True, (158, 184, 216))
+    hint = render_text_fit(font, footer_hint, (186, 210, 238), hint_chip.get_width() - 20)
     chip_x = sw // 2 - hint_chip.get_width() // 2
     chip_y = panel.bottom - 40
     screen.blit(hint_chip, (chip_x, chip_y))
@@ -362,22 +364,22 @@ def show_highscores(screen, clock, font):
         pygame.draw.rect(panel_surf, (86, 132, 210, 170), panel_surf.get_rect(), 2, border_radius=14)
         screen.blit(panel_surf, panel.topleft)
 
-        title = font.render("High Scores", True, (235, 242, 255))
+        title = render_text_fit(font, "High Scores", (235, 242, 255), panel.width - 44)
         screen.blit(title, (sw // 2 - title.get_width() // 2, panel.top + 20))
 
         y = panel.top + 82
         if not scores:
-            line = font.render("No scores yet - play to set a record.", True, (210, 220, 235))
+            line = render_text_fit(font, "No scores yet - play to set a record.", (210, 220, 235), panel.width - 44)
             screen.blit(line, (sw // 2 - line.get_width() // 2, y))
         else:
             for i, item in enumerate(scores[:10], start=1):
                 label = f"{i:>2}. {item.get('name', '---'):<16} {item.get('score', 0):>6}"
                 color = (248, 224, 155) if i <= 3 else (214, 225, 240)
-                line = font.render(label, True, color)
+                line = render_text_fit(font, label, color, panel.width - 44)
                 screen.blit(line, (sw // 2 - line.get_width() // 2, y))
                 y += 34
 
-        hint = font.render("Press any key to return", True, (152, 174, 205))
+        hint = render_text_fit(font, "Press any key to return", (178, 198, 226), panel.width - 44)
         screen.blit(hint, (sw // 2 - hint.get_width() // 2, panel.bottom - 34))
         _draw_footer_notice(screen)
         pygame.display.flip()

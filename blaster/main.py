@@ -8,6 +8,7 @@ import pygame
 from . import menu
 from . import settings
 from .assets import ensure_sounds, load_sounds, set_sounds_volume
+from .combat import CombatSystem
 from .entities import BossEnemy, Enemy, Explosion, FloatingText, Particle, Player, PowerUp, ShooterEnemy
 from .storage import (
     add_highscore,
@@ -15,7 +16,7 @@ from .storage import (
     normalize_player_name,
     save_user_settings,
 )
-from .ui import clear_background_cache, draw_background, draw_text, make_stars, ui_microtext
+from .ui import clear_background_cache, draw_background, draw_text, make_stars, render_text_fit, ui_microtext
 
 
 SHIP_LOADOUTS = (
@@ -107,6 +108,7 @@ class Game:
         self.replay_max_frames = max(1, int(self.replay_duration_ms / self.replay_capture_interval_ms) + 2)
         self.replay_frames = deque(maxlen=self.replay_max_frames)
         self.replay_last_capture_at = 0
+        self.combat = CombatSystem(self)
 
         base_dir = os.path.dirname(__file__)
         ensure_sounds(dest_dir=base_dir)
@@ -197,6 +199,7 @@ class Game:
         self.combo_last_kill_at = 0
         self.engine_fx_last_at = 0
         self.damage_flash_until = 0
+        self.combat.reset_round_state()
         self.replay_frames.clear()
         self.replay_last_capture_at = 0
 
@@ -730,17 +733,27 @@ class Game:
 
         panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
         panel.fill(base_rgba)
+        top_tint = (
+            min(255, base_rgba[0] + 22),
+            min(255, base_rgba[1] + 36),
+            min(255, base_rgba[2] + 56),
+            min(255, base_rgba[3] + 18),
+        )
+        top_h = max(8, rect.height // 3)
+        pygame.draw.rect(panel, top_tint, (0, 0, rect.width, top_h), border_radius=radius)
         sheen_h = max(10, rect.height // 2)
         sheen = pygame.Surface((max(1, rect.width - 2), sheen_h), pygame.SRCALPHA)
         sheen.fill(highlight_rgba)
         panel.blit(sheen, (1, 1))
+        pygame.draw.line(panel, (255, 255, 255, 24), (radius, 1), (rect.width - radius, 1), 1)
+        pygame.draw.line(panel, edge_rgba, (1, max(2, radius)), (1, rect.height - max(3, radius)), 1)
         pygame.draw.rect(panel, edge_rgba, panel.get_rect(), 1, border_radius=radius)
         self.screen.blit(panel, rect.topleft)
 
-    def _draw_text_shadow(self, font, text, x, y, color, shadow=(8, 12, 24), offset=(2, 2)):
-        shadow_img = font.render(text, True, shadow)
+    def _draw_text_shadow(self, font, text, x, y, color, shadow=(8, 12, 24), offset=(2, 2), max_width=None):
+        shadow_img = render_text_fit(font, text, shadow, max_width, shadow=False, outline=False)
         self.screen.blit(shadow_img, (x + offset[0], y + offset[1]))
-        img = font.render(text, True, color)
+        img = render_text_fit(font, text, color, max_width)
         self.screen.blit(img, (x, y))
 
     def _add_effect(self, effect):
@@ -813,19 +826,19 @@ class Game:
         if count <= 0:
             return
         palettes = {
-            "impact": ((150, 226, 255), (255, 232, 166), (94, 178, 255)),
-            "armor": ((166, 238, 255), (210, 250, 255), (120, 206, 255)),
-            "enemy": ((255, 126, 126), (255, 204, 128), (255, 236, 164)),
-            "elite": ((255, 182, 92), (255, 232, 150), (180, 220, 255)),
-            "boss": ((255, 112, 132), (255, 206, 168), (218, 142, 255)),
-            "shield": ((132, 224, 255), (232, 252, 255), (112, 178, 255)),
-            "player": ((255, 132, 108), (255, 224, 150), (126, 202, 255)),
+            "impact": ((156, 238, 255), (255, 238, 174), (92, 196, 255)),
+            "armor": ((172, 248, 255), (224, 255, 255), (126, 220, 255)),
+            "enemy": ((255, 112, 128), (255, 196, 110), (255, 238, 170)),
+            "elite": ((255, 178, 82), (255, 238, 156), (176, 228, 255)),
+            "boss": ((255, 96, 132), (255, 206, 150), (222, 132, 255)),
+            "shield": ((126, 236, 255), (236, 255, 255), (110, 190, 255)),
+            "player": ((255, 122, 104), (255, 226, 144), (118, 214, 255)),
         }
         palette = palettes.get(kind, palettes["impact"])
         cx, cy = center
         for idx in range(count):
             ang = random.uniform(0.0, math.tau)
-            speed = random.uniform(1.1, 3.7 if kind != "boss" else 5.0)
+            speed = random.uniform(1.3, 4.4 if kind != "boss" else 5.8)
             shape = "spark" if idx % 2 == 0 else "soft"
             self._add_effect(
                 Particle(
@@ -833,13 +846,13 @@ class Game:
                     cy + random.uniform(-4, 4),
                     vel=(math.cos(ang) * speed, math.sin(ang) * speed),
                     color=random.choice(palette),
-                    life=random.randint(260, 620),
-                    size=random.randint(2, 5 if kind != "boss" else 7),
+                    life=random.randint(300, 720),
+                    size=random.randint(2, 6 if kind != "boss" else 8),
                     shape=shape,
                     gravity=0.015,
                 )
             )
-        if kind in ("boss", "shield", "player"):
+        if kind in ("boss", "shield", "player", "elite"):
             self._add_effect(
                 Particle(
                     cx,
@@ -847,24 +860,37 @@ class Game:
                     vel=(0, 0),
                     color=random.choice(palette),
                     life=280,
-                    size=10 if kind == "boss" else 7,
+                    size=11 if kind == "boss" else 8,
                     shape="ring",
                 )
             )
 
     def _draw_meter(self, rect, ratio, fill_rgb, label=None, label_color=(230, 242, 255)):
         ratio = max(0.0, min(1.0, ratio))
-        pygame.draw.rect(self.screen, (23, 34, 58), rect, border_radius=rect.height // 2)
+        pygame.draw.rect(self.screen, (13, 24, 44), rect, border_radius=rect.height // 2)
+        pygame.draw.rect(self.screen, (36, 54, 84), rect.inflate(-2, -2), border_radius=max(1, rect.height // 2 - 1))
         fill_w = int(rect.width * ratio)
         if fill_w > 0:
             fill_rect = pygame.Rect(rect.x, rect.y, fill_w, rect.height)
             pygame.draw.rect(self.screen, fill_rgb, fill_rect, border_radius=rect.height // 2)
-            glow = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-            pygame.draw.rect(glow, (*fill_rgb, 46), fill_rect.move(-rect.x, -rect.y), border_radius=rect.height // 2)
-            self.screen.blit(glow, rect.topleft, special_flags=pygame.BLEND_RGBA_ADD)
-        pygame.draw.rect(self.screen, (108, 160, 230), rect, 1, border_radius=rect.height // 2)
+            shine_h = max(1, rect.height // 3)
+            pygame.draw.rect(
+                self.screen,
+                (min(255, fill_rgb[0] + 72), min(255, fill_rgb[1] + 58), min(255, fill_rgb[2] + 38)),
+                (fill_rect.x + 1, fill_rect.y + 1, max(0, fill_rect.width - 2), shine_h),
+                border_radius=max(1, shine_h // 2),
+            )
+            glow = pygame.Surface((rect.width + 16, rect.height + 16), pygame.SRCALPHA)
+            pygame.draw.rect(
+                glow,
+                (*fill_rgb, 58),
+                pygame.Rect(8, 8, fill_w, rect.height),
+                border_radius=rect.height // 2,
+            )
+            self.screen.blit(glow, (rect.x - 8, rect.y - 8), special_flags=pygame.BLEND_RGBA_ADD)
+        pygame.draw.rect(self.screen, (126, 190, 255), rect, 1, border_radius=rect.height // 2)
         if label:
-            text = self.small_font.render(label, True, label_color)
+            text = render_text_fit(self.small_font, label, label_color, rect.width - 12)
             self.screen.blit(text, (rect.centerx - text.get_width() // 2, rect.centery - text.get_height() // 2))
 
     def _draw_status_chip(self, rect, label, accent=(116, 202, 255), active=True):
@@ -872,7 +898,12 @@ class Game:
         edge = (*accent, 154 if active else 80)
         self._draw_glass_panel(rect, base_rgba=base, edge_rgba=edge, highlight_rgba=(*accent, 18), radius=8, shadow=False)
         pygame.draw.circle(self.screen, accent if active else (76, 92, 116), (rect.left + 12, rect.centery), 4)
-        text = self.small_font.render(label, True, (228, 240, 255) if active else (142, 164, 194))
+        text = render_text_fit(
+            self.small_font,
+            label,
+            (228, 240, 255) if active else (162, 184, 216),
+            rect.width - 34,
+        )
         self.screen.blit(text, (rect.left + 24, rect.centery - text.get_height() // 2))
 
     def _wave_label_and_progress(self):
@@ -889,66 +920,97 @@ class Game:
         hud_rect = pygame.Rect(10, 10, 318, 104)
         self._draw_glass_panel(
             hud_rect,
-            base_rgba=(8, 14, 30, 174),
-            edge_rgba=(96, 158, 242, 142),
-            highlight_rgba=(126, 196, 255, 26),
+            base_rgba=(8, 18, 40, 190),
+            edge_rgba=(112, 186, 255, 176),
+            highlight_rgba=(144, 216, 255, 34),
             radius=10,
         )
-        self._draw_text_shadow(self.font, f"{self.score:08d}", 22, 18, (238, 246, 255))
-        score_label = self.small_font.render("SCORE", True, (132, 164, 206))
+        self._draw_text_shadow(self.font, f"{self.score:08d}", 22, 18, (244, 250, 255))
+        score_label = render_text_fit(self.small_font, "SCORE", (132, 196, 246), 82)
         self.screen.blit(score_label, (230, 20))
 
         life_x = 22
         for idx in range(8):
             x = life_x + idx * 17
             active = idx < self.lives
-            col = (255, 114, 118) if active else (54, 66, 88)
+            col = (255, 104, 122) if active else (54, 66, 88)
             pygame.draw.circle(self.screen, col, (x, 50), 5)
-            pygame.draw.circle(self.screen, (255, 210, 210) if active else (80, 96, 126), (x, 50), 5, 1)
-        life_text = self.small_font.render(f"HULL {self.lives}/8", True, (255, 212, 212))
+            pygame.draw.circle(self.screen, (255, 220, 220) if active else (80, 96, 126), (x, 50), 5, 1)
+        life_text = render_text_fit(self.small_font, f"HULL {self.lives}/8", (255, 222, 222), 130)
         self.screen.blit(life_text, (174, 42))
 
         wave_text, wave_ratio, wave_col = self._wave_label_and_progress()
-        wave_label = self.small_font.render(wave_text, True, wave_col)
+        wave_label = render_text_fit(self.small_font, wave_text, wave_col, 78)
         self.screen.blit(wave_label, (22, 70))
         self._draw_meter(pygame.Rect(106, 72, 206, 10), wave_ratio, wave_col)
         if not self._is_boss_wave() and not self.wave_locked_by_shooters:
-            kills = self.small_font.render(f"{self.wave_kills}/{self.wave_target_kills}", True, (190, 220, 248))
+            kills = render_text_fit(self.small_font, f"{self.wave_kills}/{self.wave_target_kills}", (206, 228, 250), 50)
             self.screen.blit(kills, (264, 86))
+
+        if not self._is_boss_wave():
+            mission_rect = pygame.Rect(settings.WIDTH // 2 - 190, 10, 380, 54)
+            self._draw_glass_panel(
+                mission_rect,
+                base_rgba=(7, 18, 38, 176),
+                edge_rgba=(116, 206, 255, 132),
+                highlight_rgba=(150, 226, 255, 28),
+                radius=10,
+            )
+            sector = self._run_sector_for_wave()
+            mission = render_text_fit(
+                self.notice_font,
+                f"WAVE {self.wave} | SECTOR {sector}: {self._run_sector_name(sector)}",
+                (232, 246, 255),
+                mission_rect.width - 36,
+            )
+            self.screen.blit(mission, (mission_rect.centerx - mission.get_width() // 2, mission_rect.top + 9))
+            self._draw_meter(
+                pygame.Rect(mission_rect.left + 22, mission_rect.top + 34, mission_rect.width - 44, 8),
+                self._run_progress_ratio(),
+                (92, 216, 255),
+            )
 
         if self.combo_chain > 1:
             rem_ms = max(0, self.combo_timeout_ms - (now - self.combo_last_kill_at))
             rem_ratio = rem_ms / max(1, self.combo_timeout_ms)
-            combo_y = 64 if self._boss_from_enemies() is not None else 10
-            combo_rect = pygame.Rect(342, combo_y, 174, 52)
+            if self._boss_from_enemies() is not None:
+                combo_rect = pygame.Rect(342, 64, 174, 52)
+            else:
+                combo_rect = pygame.Rect(settings.WIDTH - 196, 146, 186, 54)
             self._draw_glass_panel(
                 combo_rect,
-                base_rgba=(28, 22, 32, 168),
-                edge_rgba=(255, 212, 116, 150),
-                highlight_rgba=(255, 226, 146, 20),
+                base_rgba=(38, 25, 30, 190),
+                edge_rgba=(255, 220, 126, 190),
+                highlight_rgba=(255, 236, 156, 28),
                 radius=10,
             )
-            combo = self.font.render(f"x{self.combo_multiplier:.1f}", True, (255, 232, 150))
-            chain = self.small_font.render(f"COMBO {self.combo_chain}", True, (236, 218, 174))
+            combo = render_text_fit(self.font, f"x{self.combo_multiplier:.1f}", (255, 232, 150), 58)
+            chain = render_text_fit(self.small_font, f"COMBO {self.combo_chain}", (236, 218, 174), combo_rect.width - 90)
             self.screen.blit(combo, (combo_rect.left + 14, combo_rect.top + 8))
-            self.screen.blit(chain, (combo_rect.left + 74, combo_rect.top + 12))
+            self.screen.blit(chain, (combo_rect.left + 76, combo_rect.top + 13))
             self._draw_meter(pygame.Rect(combo_rect.left + 14, combo_rect.bottom - 14, combo_rect.width - 28, 7), rem_ratio, (255, 210, 108))
 
         info_rect = pygame.Rect(10, 122, 416, 44)
         self._draw_glass_panel(
             info_rect,
-            base_rgba=(8, 14, 30, 132),
-            edge_rgba=(82, 132, 210, 84),
-            highlight_rgba=(118, 180, 246, 14),
+            base_rgba=(8, 16, 34, 154),
+            edge_rgba=(88, 154, 224, 110),
+            highlight_rgba=(132, 204, 255, 20),
             radius=9,
             shadow=False,
         )
-        profile = self.small_font.render(
+        profile = render_text_fit(
+            self.small_font,
             f"{self._ship_loadout()['short']} {self._ship_loadout()['weapon']}  |  {settings.DIFFICULTY}  |  DMG x{self.player_bullet_damage}  |  {self.player._base_shoot_cooldown}ms",
-            True,
             (198, 222, 248),
+            info_rect.width - 20,
         )
-        controls = self.notice_font.render("A/D move   Space fire   P/Esc pause   F11 fullscreen", True, (134, 166, 206))
+        controls = render_text_fit(
+            self.notice_font,
+            "A/D move   Space fire   P/Esc pause   F11 fullscreen",
+            (164, 194, 228),
+            info_rect.width - 20,
+        )
         self.screen.blit(profile, (20, 128))
         self.screen.blit(controls, (20, 148))
 
@@ -956,19 +1018,20 @@ class Game:
         run_rect = pygame.Rect(438, 122, 282, 44)
         self._draw_glass_panel(
             run_rect,
-            base_rgba=(8, 14, 30, 128),
-            edge_rgba=(82, 160, 230, 92),
-            highlight_rgba=(128, 204, 255, 16),
+            base_rgba=(8, 16, 34, 150),
+            edge_rgba=(92, 184, 242, 118),
+            highlight_rgba=(138, 220, 255, 22),
             radius=9,
             shadow=False,
         )
-        run_title = self.notice_font.render(
+        run_title = render_text_fit(
+            self.notice_font,
             f"RUN SECTOR {sector}/{len(self.run_sector_names)}",
-            True,
             (166, 206, 244),
+            116,
         )
         self.screen.blit(run_title, (run_rect.left + 12, run_rect.top + 8))
-        sector_name = self.notice_font.render(self._run_sector_name(sector), True, (226, 238, 255))
+        sector_name = render_text_fit(self.notice_font, self._run_sector_name(sector), (226, 238, 255), 116)
         self.screen.blit(sector_name, (run_rect.left + 12, run_rect.top + 25))
         self._draw_meter(
             pygame.Rect(run_rect.left + 138, run_rect.top + 18, 126, 9),
@@ -979,12 +1042,12 @@ class Game:
         powerup_rect = pygame.Rect(settings.WIDTH - 196, 10, 186, 126)
         self._draw_glass_panel(
             powerup_rect,
-            base_rgba=(8, 14, 30, 148),
-            edge_rgba=(86, 140, 224, 108),
-            highlight_rgba=(124, 188, 255, 18),
+            base_rgba=(8, 16, 34, 172),
+            edge_rgba=(98, 166, 242, 132),
+            highlight_rgba=(146, 214, 255, 24),
             radius=10,
         )
-        title = self.small_font.render("ACTIVE SYSTEMS", True, (176, 208, 242))
+        title = render_text_fit(self.small_font, "ACTIVE SYSTEMS", (190, 218, 248), powerup_rect.width - 28)
         self.screen.blit(title, (powerup_rect.left + 14, powerup_rect.top + 10))
         entries = [
             ("SHD", self.player.shield, self.player.shield_end, (118, 222, 255)),
@@ -1397,12 +1460,18 @@ class Game:
                 highlight_rgba=(126, 194, 255, 22),
                 radius=12,
             )
-            title = self.font.render(f"Wave {self.wave} cleared - choose upgrade", True, (238, 246, 255))
+            title = render_text_fit(
+                self.font,
+                f"Wave {self.wave} cleared - choose upgrade",
+                (238, 246, 255),
+                top_panel.width - 56,
+            )
             self.screen.blit(title, (settings.WIDTH // 2 - title.get_width() // 2, 86))
-            stats = self.small_font.render(
+            stats = render_text_fit(
+                self.small_font,
                 f"Hull {self.lives}/8  |  Speed {self.player.speed:.1f}  |  Damage x{self.player_bullet_damage}  |  Cooldown {self.player._base_shoot_cooldown}ms",
-                True,
                 (184, 212, 246),
+                top_panel.width - 56,
             )
             self.screen.blit(stats, (settings.WIDTH // 2 - stats.get_width() // 2, 122))
 
@@ -1419,25 +1488,31 @@ class Game:
                     card.blit(glow, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
                 pygame.draw.rect(card, border_col, card.get_rect(), 2 if active else 1, border_radius=12)
                 pygame.draw.rect(card, (*accent, 176 if active else 108), pygame.Rect(0, 0, card_w, 5), border_radius=3)
+                text_panel = pygame.Rect(12, 100, card_w - 24, 106)
+                pygame.draw.rect(card, (4, 10, 22, 174), text_panel, border_radius=9)
+                pygame.draw.rect(card, (*accent, 72 if active else 46), text_panel, 1, border_radius=9)
 
                 icon_rect = pygame.Rect(18, 22, 64, 64)
                 pygame.draw.rect(card, (8, 16, 30, 196), icon_rect, border_radius=10)
                 pygame.draw.rect(card, (*accent, 180), icon_rect, 1, border_radius=10)
-                icon = self.small_font.render(choice.get("icon", "UPG"), True, accent)
+                icon = render_text_fit(self.small_font, choice.get("icon", "UPG"), accent, icon_rect.width - 10)
                 card.blit(icon, (icon_rect.centerx - icon.get_width() // 2, icon_rect.centery - icon.get_height() // 2))
 
-                key_text = self.small_font.render(f"{idx + 1}", True, (226, 240, 255))
+                key_text = render_text_fit(self.small_font, f"{idx + 1}", (226, 240, 255), 22)
                 key_rect = pygame.Rect(card_w - 44, 18, 28, 28)
                 pygame.draw.rect(card, (8, 16, 30, 180), key_rect, border_radius=6)
                 pygame.draw.rect(card, (*accent, 140), key_rect, 1, border_radius=6)
                 card.blit(key_text, (key_rect.centerx - key_text.get_width() // 2, key_rect.centery - key_text.get_height() // 2))
 
-                rarity = self.notice_font.render(rarity_label, True, accent)
-                title_text = self.font.render(choice["title"], True, (238, 246, 255))
-                desc_text = self.small_font.render(choice["desc"], True, (192, 220, 252))
-                card.blit(rarity, (96, 26))
+                rarity_rect = pygame.Rect(92, 22, card_w - 154, 25)
+                pygame.draw.rect(card, (4, 10, 22, 188), rarity_rect, border_radius=7)
+                pygame.draw.rect(card, (*accent, 84), rarity_rect, 1, border_radius=7)
+                rarity = render_text_fit(self.notice_font, rarity_label, accent, rarity_rect.width - 12)
+                title_text = render_text_fit(self.font, choice["title"], (238, 246, 255), card_w - 36)
+                desc_text = render_text_fit(self.small_font, choice["desc"], (208, 228, 250), card_w - 36)
+                card.blit(rarity, (rarity_rect.centerx - rarity.get_width() // 2, rarity_rect.centery - rarity.get_height() // 2))
                 card.blit(title_text, (18, 112))
-                pygame.draw.line(card, (92, 134, 198, 110), (18, 152), (card_w - 18, 152), 1)
+                pygame.draw.line(card, (118, 162, 226, 130), (18, 152), (card_w - 18, 152), 1)
                 card.blit(desc_text, (18, 170))
 
                 if active:
@@ -1451,10 +1526,11 @@ class Game:
                     )
                 self.screen.blit(card, rect.topleft)
 
-            hint = self.small_font.render(
+            hint = render_text_fit(
+                self.small_font,
                 "A/D or arrows select   Enter/Space confirm   Mouse supported",
-                True,
                 (172, 205, 242),
+                settings.WIDTH - 80,
             )
             self.screen.blit(hint, (settings.WIDTH // 2 - hint.get_width() // 2, settings.HEIGHT - 86))
             pygame.display.flip()
@@ -1532,11 +1608,13 @@ class Game:
                 highlight_rgba=(126, 194, 255, 24),
                 radius=14,
             )
-            title = pygame.font.SysFont(None, 46).render("Select Ship Frame", True, (240, 248, 255))
-            subtitle = self.small_font.render(
+            title_font = pygame.font.SysFont(None, 46)
+            title = render_text_fit(title_font, "Select Ship Frame", (240, 248, 255), title_panel.width - 56)
+            subtitle = render_text_fit(
+                self.small_font,
                 "Local profile loadout - no online account required",
-                True,
                 (176, 206, 238),
+                title_panel.width - 56,
             )
             self.screen.blit(title, (settings.WIDTH // 2 - title.get_width() // 2, title_panel.top + 18))
             self.screen.blit(subtitle, (settings.WIDTH // 2 - subtitle.get_width() // 2, title_panel.top + 66))
@@ -1552,8 +1630,8 @@ class Game:
                 pygame.draw.rect(card, accent if active else (84, 128, 196), card.get_rect(), 2 if active else 1, border_radius=16)
                 pygame.draw.rect(card, (*accent, 190 if active else 110), pygame.Rect(0, 0, rect.width, 6), border_radius=4)
 
-                label = self.notice_font.render(loadout["rarity"], True, accent)
-                key = self.small_font.render(str(idx + 1), True, (230, 242, 255))
+                label = render_text_fit(self.notice_font, loadout["rarity"], accent, rect.width - 88)
+                key = render_text_fit(self.small_font, str(idx + 1), (230, 242, 255), 24)
                 card.blit(label, (22, 22))
                 key_rect = pygame.Rect(rect.width - 48, 18, 30, 30)
                 pygame.draw.rect(card, (4, 10, 22, 190), key_rect, border_radius=8)
@@ -1567,10 +1645,10 @@ class Game:
                 card.blit(glow, (rect.width // 2 - 75, 62 + bob), special_flags=pygame.BLEND_RGBA_ADD)
                 card.blit(preview, (rect.width // 2 - preview.get_width() // 2, 82 + bob))
 
-                name = self.font.render(loadout["name"], True, (240, 248, 255))
-                role = self.small_font.render(loadout["role"], True, (184, 212, 244))
-                weapon = self.notice_font.render(loadout["weapon"], True, accent)
-                desc = self.notice_font.render(loadout["desc"], True, (150, 178, 212))
+                name = render_text_fit(self.font, loadout["name"], (240, 248, 255), rect.width - 44)
+                role = render_text_fit(self.small_font, loadout["role"], (194, 220, 248), rect.width - 44)
+                weapon = render_text_fit(self.notice_font, loadout["weapon"], accent, rect.width - 44)
+                desc = render_text_fit(self.notice_font, loadout["desc"], (188, 210, 238), rect.width - 44)
                 card.blit(name, (22, 198))
                 card.blit(role, (22, 232))
                 card.blit(weapon, (22, 254))
@@ -1589,8 +1667,8 @@ class Game:
                     stat_rect = pygame.Rect(sx, sy, 66, 32)
                     pygame.draw.rect(card, (5, 12, 26, 180), stat_rect, border_radius=8)
                     pygame.draw.rect(card, (*accent, 95), stat_rect, 1, border_radius=8)
-                    cap = self.notice_font.render(stat_label, True, (126, 158, 196))
-                    val = self.small_font.render(value, True, (230, 242, 255))
+                    cap = render_text_fit(self.notice_font, stat_label, (148, 178, 212), stat_rect.width - 8)
+                    val = render_text_fit(self.small_font, value, (230, 242, 255), stat_rect.width - 8)
                     card.blit(cap, (stat_rect.centerx - cap.get_width() // 2, stat_rect.y + 3))
                     card.blit(val, (stat_rect.centerx - val.get_width() // 2, stat_rect.y + 15))
                     sx += 72
@@ -1606,10 +1684,11 @@ class Game:
                     )
                 self.screen.blit(card, rect.topleft)
 
-            hint = self.small_font.render(
+            hint = render_text_fit(
+                self.small_font,
                 "A/D or arrows select   Enter/Space launch   Esc back   Mouse supported",
-                True,
                 (170, 202, 238),
+                settings.WIDTH - 80,
             )
             self.screen.blit(hint, (settings.WIDTH // 2 - hint.get_width() // 2, settings.HEIGHT - 58))
             pygame.display.flip()
@@ -1667,7 +1746,7 @@ class Game:
             top.fill((10, 16, 32, 165))
             pygame.draw.rect(top, (120, 168, 240, 110), top.get_rect(), 1, border_radius=6)
             self.screen.blit(top, (0, 0))
-            draw_text(self.screen, self.font, "Death Replay (5s)", 14, 12, (232, 244, 255))
+            draw_text(self.screen, self.font, "Death Replay (5s)", 14, 12, (232, 244, 255), max_width=260)
             draw_text(
                 self.screen,
                 self.small_font,
@@ -1687,7 +1766,7 @@ class Game:
 
             pygame.draw.rect(self.screen, (22, 34, 62), skip_rect, border_radius=7)
             pygame.draw.rect(self.screen, (130, 176, 255), skip_rect, 1, border_radius=7)
-            skip_label = self.font.render("Skip", True, (230, 240, 255))
+            skip_label = render_text_fit(self.font, "Skip", (230, 240, 255), skip_rect.width - 12)
             self.screen.blit(
                 skip_label,
                 (
@@ -1720,7 +1799,7 @@ class Game:
                 self.screen.blit(sprite.image, sprite.rect.move(cam_x, cam_y))
 
             pulse = 0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.018)
-            msg = self.font.render("Ship Destroyed", True, (255, 196, 168))
+            msg = render_text_fit(self.font, "Ship Destroyed", (255, 196, 168), settings.WIDTH - 80)
             msg.set_alpha(int(180 + 75 * pulse))
             self.screen.blit(msg, (settings.WIDTH // 2 - msg.get_width() // 2, settings.HEIGHT // 2 + 38))
             pygame.display.flip()
@@ -1772,6 +1851,131 @@ class Game:
         enemy.enter_depth_lane(lane=self._choose_depth_lane(), wave=self.wave, now=pygame.time.get_ticks())
         self.enemies.add(enemy)
         self.all_sprites.add(enemy)
+
+    def _draw_boss_combat_overlay(self, boss, cam_x, cam_y, now):
+        if boss is None:
+            return
+        charge_left = int(getattr(boss, "telegraph_remaining_ms", lambda _n: 0)(now))
+        if charge_left <= 0:
+            return
+
+        ratio = float(getattr(boss, "telegraph_progress", lambda _n: 0.0)(now))
+        cx = boss.rect.centerx + cam_x
+        cy = boss.rect.centery + cam_y
+        base_r = boss.rect.width // 2 + 40
+        pulse = 0.5 + 0.5 * math.sin(now * 0.02)
+        ring_r = base_r + int(14 * pulse) + int(26 * ratio)
+        glow_alpha = int(90 + 130 * ratio)
+        ring = pygame.Surface((ring_r * 2 + 44, ring_r * 2 + 44), pygame.SRCALPHA)
+        rcx = ring.get_width() // 2
+        rcy = ring.get_height() // 2
+        pygame.draw.circle(ring, (255, 88, 112, glow_alpha // 5), (rcx, rcy), ring_r + 22)
+        pygame.draw.circle(ring, (255, 132, 132, glow_alpha // 2), (rcx, rcy), ring_r + 9, 2)
+        pygame.draw.circle(ring, (255, 204, 142, glow_alpha), (rcx, rcy), ring_r, 3)
+        arc_rect = pygame.Rect(rcx - ring_r, rcy - ring_r, ring_r * 2, ring_r * 2)
+        sweep = max(0.35, math.tau * ratio)
+        pygame.draw.arc(ring, (255, 244, 190, min(255, glow_alpha + 36)), arc_rect, -math.pi / 2, -math.pi / 2 + sweep, 6)
+        for idx in range(8):
+            ang = now * 0.004 + idx * math.tau / 8
+            inner = ring_r - 18
+            outer = ring_r + 8
+            pygame.draw.line(
+                ring,
+                (255, 132, 132, max(40, glow_alpha // 3)),
+                (int(rcx + math.cos(ang) * inner), int(rcy + math.sin(ang) * inner)),
+                (int(rcx + math.cos(ang) * outer), int(rcy + math.sin(ang) * outer)),
+                2,
+            )
+        self.screen.blit(ring, (cx - rcx, cy - rcy))
+
+    def _draw_boss_status_panel(self, now):
+        boss = self._boss_from_enemies()
+        if boss is None:
+            return
+
+        bar_w = 420
+        bar_h = 18
+        bx = settings.WIDTH // 2 - bar_w // 2
+        by = 18
+        bar_bg = pygame.Rect(bx - 12, by - 8, bar_w + 24, bar_h + 34)
+        self._draw_glass_panel(
+            bar_bg,
+            base_rgba=(24, 12, 30, 190),
+            edge_rgba=(226, 132, 188, 150),
+            highlight_rgba=(255, 166, 226, 30),
+            radius=10,
+            shadow=False,
+        )
+        pygame.draw.rect(self.screen, (34, 22, 44), (bx, by, bar_w, bar_h), border_radius=7)
+        ratio = max(0.0, min(1.0, boss.health / max(1, boss.max_health)))
+        fill_w = int((bar_w - 4) * ratio)
+        pulse = 0.5 + 0.5 * math.sin(now * 0.012)
+        hp_col = (238, 82 + int(36 * pulse), 128 + int(24 * pulse))
+        pygame.draw.rect(self.screen, hp_col, (bx + 2, by + 2, fill_w, bar_h - 4), border_radius=5)
+        pygame.draw.rect(self.screen, (255, 218, 230), (bx, by, bar_w, bar_h), 1, border_radius=7)
+        draw_text(
+            self.screen,
+            self.font,
+            f"Boss HP: {boss.health}/{boss.max_health}  Phase {getattr(boss, 'phase', 1)}",
+            bx + 104,
+            by - 1,
+            (255, 235, 240),
+            max_width=bar_w - 116,
+        )
+        charge_left = int(getattr(boss, "telegraph_remaining_ms", lambda _n: 0)(now))
+        if charge_left > 0:
+            charge_ratio = float(getattr(boss, "telegraph_progress", lambda _n: 0.0)(now))
+            draw_text(
+                self.screen,
+                self.small_font,
+                "Boss charging heavy attack!",
+                bx + 88,
+                by + 18,
+                (255, 186, 150),
+                max_width=bar_w - 100,
+            )
+            charge_w = 230
+            charge_x = bx + 95
+            charge_y = by + 38
+            pygame.draw.rect(self.screen, (42, 26, 36), (charge_x, charge_y, charge_w, 8), border_radius=4)
+            fill = int((charge_w - 2) * max(0.0, min(1.0, charge_ratio)))
+            pygame.draw.rect(self.screen, (255, 124, 120), (charge_x + 1, charge_y + 1, fill, 6), border_radius=3)
+        else:
+            attack_eta = max(0, int(getattr(boss, "next_attack_at", 0) - now))
+            if attack_eta <= 260:
+                draw_text(
+                    self.screen,
+                    self.small_font,
+                    "Incoming attack!",
+                    bx + 150,
+                    by + 20,
+                    (255, 198, 160),
+                    max_width=bar_w - 160,
+                )
+
+    def _draw_gameplay_frame(self, dt, now):
+        draw_background(self.screen, self.stars, dt)
+        cam_x, cam_y = self._consume_camera_offset(dt)
+        self._draw_depth_entry_wakes(now, cam_x=cam_x, cam_y=cam_y)
+
+        if settings.BULLET_TRAIL_LENGTH > 0:
+            for bullet in self.bullets:
+                self._draw_player_bullet_trail(bullet, cam_x=cam_x, cam_y=cam_y)
+
+        world_sprites = self._sorted_world_sprites()
+        for sprite in world_sprites:
+            self._draw_sprite_depth_shadow(sprite, cam_x=cam_x, cam_y=cam_y)
+        for effect in tuple(self.effects):
+            self.screen.blit(effect.image, effect.rect.move(cam_x, cam_y))
+        for sprite in world_sprites:
+            self.combat.draw_world_sprite(sprite, cam_x=cam_x, cam_y=cam_y, now=now)
+        if self.player.shield:
+            self.player.draw_shield(self.screen, cam_x=cam_x, cam_y=cam_y, now=now)
+
+        self._draw_boss_combat_overlay(self._boss_from_enemies(), cam_x, cam_y, now)
+        self._draw_damage_flash(now)
+        self._draw_modern_hud(now)
+        self._draw_boss_status_panel(now)
 
     def _choose_depth_lane(self):
         lanes = (-2, -1, 0, 1, 2)
@@ -1958,81 +2162,9 @@ class Game:
 
             self._unlock_wave_if_ready()
 
-            hits = pygame.sprite.groupcollide(self.enemies, self.bullets, False, False)
-            for enemy, hit_bullets in hits.items():
-                if hasattr(enemy, "is_targetable") and not enemy.is_targetable():
-                    continue
-                processed_bullets = []
-                for bullet in hit_bullets:
-                    if not bullet.alive():
-                        continue
-                    processed_bullets.append(bullet)
-                    if hasattr(bullet, "register_hit"):
-                        bullet.register_hit()
-                    else:
-                        bullet.kill()
-                if not processed_bullets:
-                    continue
-                hit_centers = [bullet.rect.center for bullet in processed_bullets]
-                incoming = sum(max(1, int(getattr(bullet, "damage", 1))) for bullet in processed_bullets)
-                incoming *= self.player_bullet_damage
-                blocked = False
-                if hasattr(enemy, "absorb_player_damage"):
-                    _effective, blocked = enemy.absorb_player_damage(incoming, now=now)
-                else:
-                    enemy.health -= incoming
-                for center in hit_centers:
-                    self._emit_burst_fx(center, kind="armor" if blocked else "impact", count=3)
-                if blocked:
-                    ft = FloatingText(
-                        enemy.rect.centerx,
-                        enemy.rect.centery - 10,
-                        "ARMOR",
-                        color=(178, 234, 255),
-                        lifetime=460,
-                    )
-                    self.floating.add(ft)
-                    self.all_sprites.add(ft)
-                if enemy.health <= 0:
-                    self._handle_enemy_defeat(enemy, allow_powerup_drop=True)
-
-            hits2 = pygame.sprite.spritecollide(self.player, self.enemies, False, pygame.sprite.collide_rect)
-            hits2 = [enemy for enemy in hits2 if not hasattr(enemy, "is_targetable") or enemy.is_targetable()]
-            if hits2:
-                took_damage = False
-                if self.player.shield:
-                    for enemy in hits2:
-                        if getattr(enemy, "is_boss", False):
-                            enemy.health -= 3
-                            if enemy.health <= 0:
-                                self._handle_enemy_defeat(enemy, allow_powerup_drop=False)
-                            else:
-                                self._start_shake(3, duration_ms=90)
-                        else:
-                            self._handle_enemy_defeat(enemy, allow_powerup_drop=False)
-                    ft = FloatingText(self.player.rect.centerx, self.player.rect.top, "BLOCK!", (120, 220, 255))
-                    self.floating.add(ft)
-                    self.all_sprites.add(ft)
-                    self._emit_burst_fx(self.player.rect.center, kind="shield", count=10)
-                    self._play_sound("hit")
-                    self._start_shake(2, duration_ms=80)
-                else:
-                    for enemy in hits2:
-                        if not getattr(enemy, "is_boss", False):
-                            enemy.kill()
-                        took_damage = True
-                    if took_damage:
-                        self._reset_combo(show_text=True)
-                        self.lives -= 1
-                        expl = Explosion(self.player.rect.center, lifetime=500)
-                        self.explosions.add(expl)
-                        self.all_sprites.add(expl)
-                        self._emit_burst_fx(self.player.rect.center, kind="player", count=14)
-                        self.damage_flash_until = now + 180
-                        self._play_sound("hit")
-                        self._start_shake(4, duration_ms=140)
-                        if self.lives <= 0:
-                            return self._finish_game_over_with_animation()
+            self.combat.resolve_player_bullet_hits(now)
+            if self.combat.resolve_player_enemy_collisions(now):
+                return self._finish_game_over_with_animation()
 
             if self.pending_wave_advance and len(self.enemies) == 0:
                 if self.wave >= self.run_final_wave:
@@ -2043,130 +2175,11 @@ class Game:
                 self._advance_wave()
             self._update_combo_timeout(now)
 
-            powerup_hits = pygame.sprite.spritecollide(self.player, self.powerups, True)
-            for pu in powerup_hits:
-                self.player.apply_powerup(pu.ptype)
-                ft = FloatingText(
-                    self.player.rect.centerx,
-                    self.player.rect.top,
-                    f"{pu.ptype.upper()}!",
-                    (255, 220, 120),
-                )
-                self.floating.add(ft)
-                self.all_sprites.add(ft)
-                self._emit_burst_fx(self.player.rect.center, kind="shield" if pu.ptype == "shield" else "impact", count=8)
-                self._play_sound("hit")
+            self.combat.resolve_powerup_pickups()
+            if self.combat.resolve_enemy_bullet_hits(now):
+                return self._finish_game_over_with_animation()
 
-            enemy_bullet_hits = pygame.sprite.spritecollide(self.player, self.enemy_bullets, True)
-            if enemy_bullet_hits:
-                if self.player.shield:
-                    ft = FloatingText(self.player.rect.centerx, self.player.rect.top, "DEFLECT", (170, 235, 255), lifetime=700)
-                    self.floating.add(ft)
-                    self.all_sprites.add(ft)
-                    self._emit_burst_fx(self.player.rect.center, kind="shield", count=8)
-                    self._start_shake(1, duration_ms=70)
-                else:
-                    self._reset_combo(show_text=True)
-                    self.lives -= 1
-                    expl = Explosion(self.player.rect.center, lifetime=420)
-                    self.explosions.add(expl)
-                    self.all_sprites.add(expl)
-                    self._emit_burst_fx(self.player.rect.center, kind="player", count=12)
-                    self.damage_flash_until = now + 180
-                    self._play_sound("hit")
-                    self._start_shake(3, duration_ms=110)
-                    if self.lives <= 0:
-                        return self._finish_game_over_with_animation()
-
-            draw_background(self.screen, self.stars, dt)
-            cam_x, cam_y = self._consume_camera_offset(dt)
-            self._draw_depth_entry_wakes(now, cam_x=cam_x, cam_y=cam_y)
-
-            if settings.BULLET_TRAIL_LENGTH > 0:
-                for bullet in self.bullets:
-                    self._draw_player_bullet_trail(bullet, cam_x=cam_x, cam_y=cam_y)
-
-            world_sprites = self._sorted_world_sprites()
-            for sprite in world_sprites:
-                self._draw_sprite_depth_shadow(sprite, cam_x=cam_x, cam_y=cam_y)
-            for effect in tuple(self.effects):
-                self.screen.blit(effect.image, effect.rect.move(cam_x, cam_y))
-            for sprite in world_sprites:
-                self.screen.blit(sprite.image, sprite.rect.move(cam_x, cam_y))
-            if self.player.shield:
-                self.player.draw_shield(self.screen, cam_x=cam_x, cam_y=cam_y, now=now)
-            boss_fx = self._boss_from_enemies()
-            if boss_fx is not None:
-                charge_left = int(getattr(boss_fx, "telegraph_remaining_ms", lambda _n: 0)(now))
-                if charge_left > 0:
-                    ratio = float(getattr(boss_fx, "telegraph_progress", lambda _n: 0.0)(now))
-                    cx = boss_fx.rect.centerx + cam_x
-                    cy = boss_fx.rect.centery + cam_y
-                    base_r = boss_fx.rect.width // 2 + 12
-                    pulse = 0.5 + 0.5 * math.sin(now * 0.02)
-                    ring_r = base_r + int(4 * pulse)
-                    glow_alpha = int(90 + 130 * ratio)
-                    ring = pygame.Surface((ring_r * 2 + 20, ring_r * 2 + 20), pygame.SRCALPHA)
-                    rcx = ring.get_width() // 2
-                    rcy = ring.get_height() // 2
-                    pygame.draw.circle(ring, (255, 132, 132, glow_alpha // 2), (rcx, rcy), ring_r + 6, 2)
-                    pygame.draw.circle(ring, (255, 188, 146, glow_alpha), (rcx, rcy), ring_r, 3)
-                    self.screen.blit(ring, (cx - rcx, cy - rcy))
-
-            self._draw_damage_flash(now)
-            self._draw_modern_hud(now)
-
-            boss = self._boss_from_enemies()
-            if boss is not None:
-                bar_w = 320
-                bar_h = 16
-                bx = settings.WIDTH // 2 - bar_w // 2
-                by = 18
-                bar_bg = pygame.Rect(bx - 4, by - 4, bar_w + 8, bar_h + 26)
-                self._draw_glass_panel(
-                    bar_bg,
-                    base_rgba=(18, 14, 30, 166),
-                    edge_rgba=(168, 122, 168, 118),
-                    highlight_rgba=(196, 146, 236, 20),
-                    radius=8,
-                    shadow=False,
-                )
-                pygame.draw.rect(self.screen, (32, 24, 44), (bx, by, bar_w, bar_h), border_radius=6)
-                ratio = max(0.0, min(1.0, boss.health / max(1, boss.max_health)))
-                fill_w = int((bar_w - 4) * ratio)
-                pulse = 0.5 + 0.5 * math.sin(now * 0.012)
-                hp_col = (225, 86 + int(28 * pulse), 118 + int(16 * pulse))
-                pygame.draw.rect(self.screen, hp_col, (bx + 2, by + 2, fill_w, bar_h - 4), border_radius=5)
-                pygame.draw.rect(self.screen, (255, 200, 220), (bx, by, bar_w, bar_h), 1, border_radius=6)
-                draw_text(
-                    self.screen,
-                    self.font,
-                    f"Boss HP: {boss.health}/{boss.max_health}  Phase {getattr(boss, 'phase', 1)}",
-                    bx + 54,
-                    by - 2,
-                    (255, 235, 240),
-                )
-                charge_left = int(getattr(boss, "telegraph_remaining_ms", lambda _n: 0)(now))
-                if charge_left > 0:
-                    charge_ratio = float(getattr(boss, "telegraph_progress", lambda _n: 0.0)(now))
-                    draw_text(
-                        self.screen,
-                        self.small_font,
-                        "Boss charging heavy attack!",
-                        bx + 88,
-                        by + 18,
-                        (255, 186, 150),
-                    )
-                    charge_w = 188
-                    charge_x = bx + 66
-                    charge_y = by + 36
-                    pygame.draw.rect(self.screen, (42, 26, 36), (charge_x, charge_y, charge_w, 8), border_radius=4)
-                    fill = int((charge_w - 2) * max(0.0, min(1.0, charge_ratio)))
-                    pygame.draw.rect(self.screen, (255, 124, 120), (charge_x + 1, charge_y + 1, fill, 6), border_radius=3)
-                else:
-                    attack_eta = max(0, int(getattr(boss, "next_attack_at", 0) - now))
-                    if attack_eta <= 260:
-                        draw_text(self.screen, self.small_font, "Incoming attack!", bx + 112, by + 18, (255, 198, 160))
+            self._draw_gameplay_frame(dt, now)
 
             self._capture_replay_frame(pygame.time.get_ticks())
             pygame.display.flip()
@@ -2178,6 +2191,7 @@ class Game:
         max_len = 16
         prompt_font = pygame.font.SysFont(None, 32)
         while True:
+            self.clock.tick(settings.FPS)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return "quit"
@@ -2195,10 +2209,11 @@ class Game:
                             name += ch
 
             self.screen.fill((0, 0, 0))
-            prompt = prompt_font.render(
+            prompt = render_text_fit(
+                prompt_font,
                 "Enter highscore name (Enter save, Esc skip):",
-                True,
                 (200, 200, 200),
+                settings.WIDTH - 80,
             )
             self.screen.blit(
                 prompt,
@@ -2206,13 +2221,13 @@ class Game:
             )
 
             shown_name = normalize_player_name(name) if name.strip() else name
-            name_surface = prompt_font.render(shown_name, True, (255, 255, 255))
+            name_surface = render_text_fit(prompt_font, shown_name, (255, 255, 255), settings.WIDTH - 120)
             self.screen.blit(
                 name_surface,
                 (settings.WIDTH // 2 - name_surface.get_width() // 2, settings.HEIGHT // 2),
             )
 
-            limit = self.font.render(f"{len(name)}/{max_len}", True, (150, 150, 150))
+            limit = render_text_fit(self.font, f"{len(name)}/{max_len}", (170, 170, 170), 120)
             self.screen.blit(limit, (settings.WIDTH // 2 - limit.get_width() // 2, settings.HEIGHT // 2 + 40))
             pygame.display.flip()
 
@@ -2220,8 +2235,8 @@ class Game:
         over_font = pygame.font.SysFont(None, 64)
         small = pygame.font.SysFont(None, 28)
         self.screen.fill((0, 0, 0))
-        text = over_font.render("GAME OVER", True, (220, 50, 50))
-        sub = small.render(f"Score: {self.score} - press any key to return", True, (255, 255, 255))
+        text = render_text_fit(over_font, "GAME OVER", (220, 50, 50), settings.WIDTH - 80)
+        sub = render_text_fit(small, f"Score: {self.score} - press any key to return", (255, 255, 255), settings.WIDTH - 80)
         self.screen.blit(text, (settings.WIDTH // 2 - text.get_width() // 2, settings.HEIGHT // 2 - 30))
         self.screen.blit(sub, (settings.WIDTH // 2 - sub.get_width() // 2, settings.HEIGHT // 2 + 30))
         pygame.display.flip()
@@ -2271,9 +2286,9 @@ class Game:
                 radius=12,
             )
 
-            title = title_font.render("RUN COMPLETE", True, (230, 248, 255))
+            title = render_text_fit(title_font, "RUN COMPLETE", (230, 248, 255), panel_rect.width - 56)
             self.screen.blit(title, (settings.WIDTH // 2 - title.get_width() // 2, panel_rect.top + 30))
-            subtitle = headline_font.render("Command Spire cleared", True, (255, 222, 146))
+            subtitle = render_text_fit(headline_font, "Command Spire cleared", (255, 222, 146), panel_rect.width - 56)
             self.screen.blit(subtitle, (settings.WIDTH // 2 - subtitle.get_width() // 2, panel_rect.top + 92))
 
             loadout = self._ship_loadout()
@@ -2286,7 +2301,7 @@ class Game:
             y = panel_rect.top + 150
             for i, row in enumerate(rows):
                 color = (214, 232, 252) if i < len(rows) - 1 else (152, 184, 220)
-                text = small.render(row, True, color)
+                text = render_text_fit(small, row, color, panel_rect.width - 56)
                 self.screen.blit(text, (settings.WIDTH // 2 - text.get_width() // 2, y))
                 y += 34
 
@@ -2456,12 +2471,13 @@ class Game:
             pygame.draw.rect(panel_surf, (90, 142, 220, 176), panel_surf.get_rect(), 2, border_radius=14)
             self.screen.blit(panel_surf, panel.topleft)
 
-            title = self.font.render("Options", True, (242, 244, 255))
+            title = render_text_fit(self.font, "Options", (242, 244, 255), panel.width - 68)
             self.screen.blit(title, (sw // 2 - title.get_width() // 2, panel.top + 16))
-            profile = self.small_font.render(
+            profile = render_text_fit(
+                self.small_font,
                 f"{settings.VISUAL_QUALITY} | {settings.DIFFICULTY} | cap {settings.FPS} | vol {int(self.master_volume * 100)}%",
-                True,
                 (176, 198, 228),
+                panel.width - 68,
             )
             self.screen.blit(profile, (sw // 2 - profile.get_width() // 2, panel.top + 46))
 
@@ -2492,12 +2508,17 @@ class Game:
                     pygame.draw.rect(self.screen, (24, 42, 78), rrect, border_radius=6)
                     pygame.draw.rect(self.screen, (110, 160, 226), lrect, 1, border_radius=6)
                     pygame.draw.rect(self.screen, (110, 160, 226), rrect, 1, border_radius=6)
-                    ltxt = self.small_font.render("<", True, (210, 228, 255))
-                    rtxt = self.small_font.render(">", True, (210, 228, 255))
+                    ltxt = render_text_fit(self.small_font, "<", (210, 228, 255), 18)
+                    rtxt = render_text_fit(self.small_font, ">", (210, 228, 255), 18)
                     self.screen.blit(ltxt, (lrect.centerx - ltxt.get_width() // 2, lrect.centery - ltxt.get_height() // 2))
                     self.screen.blit(rtxt, (rrect.centerx - rtxt.get_width() // 2, rrect.centery - rtxt.get_height() // 2))
 
-                text = self.font.render(option_label(opt), True, (255, 232, 146) if is_selected else (210, 224, 244))
+                text = render_text_fit(
+                    self.font,
+                    option_label(opt),
+                    (255, 232, 146) if is_selected else (220, 232, 248),
+                    row_rect.width - (94 if opt in adjustable else 24),
+                )
                 self.screen.blit(text, (row_rect.centerx - text.get_width() // 2, row_rect.centery - text.get_height() // 2))
 
             selected_opt = options[idx]
@@ -2507,7 +2528,7 @@ class Game:
             desc_surf.fill((10, 20, 40, 172))
             pygame.draw.rect(desc_surf, (98, 142, 210, 120), desc_surf.get_rect(), 1, border_radius=8)
             self.screen.blit(desc_surf, desc_rect.topleft)
-            dimg = self.small_font.render(desc, True, (182, 208, 238))
+            dimg = render_text_fit(self.small_font, desc, (206, 226, 250), desc_rect.width - 22)
             self.screen.blit(dimg, (desc_rect.centerx - dimg.get_width() // 2, desc_rect.centery - dimg.get_height() // 2))
 
             if selected_opt == "Master Volume":
@@ -2523,13 +2544,14 @@ class Game:
                 pygame.draw.rect(self.screen, (34, 50, 78), bar_rect, border_radius=4)
                 pygame.draw.rect(self.screen, (94, 172, 255), (bar_rect.x, bar_rect.y, int(bar_rect.width * ratio), bar_rect.height), border_radius=4)
 
-            hint = self.small_font.render(
+            hint = render_text_fit(
+                self.small_font,
                 "Arrows/WASD navigate, Q/E change, Enter apply, mouse click, R reset, F11 fullscreen, Esc back",
-                True,
                 (152, 176, 208),
+                panel.width - 68,
             )
             self.screen.blit(hint, (sw // 2 - hint.get_width() // 2, panel.bottom - 20))
-            tag = self.notice_font.render(self.notice_text, True, (120, 138, 164))
+            tag = render_text_fit(self.notice_font, self.notice_text, (120, 138, 164), sw - 16)
             self.screen.blit(tag, (8, sh - 16))
             pygame.display.flip()
 

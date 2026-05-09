@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed
+- Runtime settings and high scores now use the user's app data directory instead of writing active saves into the source tree.
+- Legacy `data/settings.json` and `data/highscores.json` files are migrated on first run when no app-data save exists.
+- Combat collision handling now lives in `blaster/combat.py`, reducing the size and responsibility of `blaster/main.py`.
+- README media previews were refreshed to match the current menu, combat HUD, ship frames, and boss telegraph systems.
+- README screenshots are now PNG captures from the actual Pygame renderer and can be regenerated with `tools/capture_readme_screenshots.py`.
+- In-game rendering was tuned toward the refreshed preview style with brighter space backdrops, stronger HUD glass panels, richer combat particles, and a more dramatic boss telegraph.
+- Background composition was refined to remove the bright center glow, keep nebula detail near the edges, and lower the perspective grid for better gameplay readability.
+- The player ship is now slightly larger and sits higher above the bottom edge for better visibility.
+
+### Fixed
+- Added strict boolean sanitization for persisted settings such as fullscreen and FPS display.
+- Capped the high-score name prompt loop to the configured FPS limit.
+- Added short post-hit player invulnerability to prevent rapid multi-hit life loss.
+- Menu, HUD, options, selection, replay, and end-screen labels now fit inside their panels and use brighter text where contrast was weak.
+- UI text now renders with a consistent dark outline/shadow, and upgrade cards have darker text zones so labels stay readable over colored glows.
+
 ## 1.0.0 - 2026-03-06
 
 ### Added

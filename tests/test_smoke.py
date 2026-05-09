@@ -1,6 +1,8 @@
 import os
+import pygame
 from blaster import settings
 from blaster import assets
+from blaster.ui import render_text_fit
 
 
 def test_set_difficulty():
@@ -43,3 +45,12 @@ def test_ensure_sounds_includes_enemy_shot(tmp_path):
     paths = assets.ensure_sounds(dest_dir=str(tmp_path))
     assert 'enemy_shot' in paths
     assert os.path.exists(paths['enemy_shot'])
+
+
+def test_render_text_fit_respects_max_width():
+    pygame.font.init()
+    font = pygame.font.SysFont(None, 28)
+
+    image = render_text_fit(font, "A very long interface label that should not overflow", (255, 255, 255), 120)
+
+    assert image.get_width() <= 120
