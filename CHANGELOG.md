@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-05-10
+
 ### Changed
 - Runtime settings and high scores now use the user's app data directory instead of writing active saves into the source tree.
 - Legacy `data/settings.json` and `data/highscores.json` files are migrated on first run when no app-data save exists.
