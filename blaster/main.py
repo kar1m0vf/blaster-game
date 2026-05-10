@@ -7,7 +7,7 @@ import pygame
 
 from . import menu
 from . import settings
-from .assets import ensure_sounds, load_sounds, set_sounds_volume
+from .assets import ensure_sounds, load_sounds, load_window_icon, set_sounds_volume
 from .combat import CombatSystem
 from .entities import BossEnemy, Enemy, Explosion, FloatingText, Particle, Player, PowerUp, ShooterEnemy
 from .storage import (
@@ -328,6 +328,9 @@ class Game:
         self.screen = pygame.Surface((settings.WIDTH, settings.HEIGHT)).convert()
         self._recalculate_present_rect()
         self._install_display_hooks()
+        icon = load_window_icon(dest_dir=os.path.dirname(__file__))
+        if icon is not None:
+            pygame.display.set_icon(icon)
         pygame.display.set_caption("Blaster - polished")
 
     def _toggle_fullscreen(self):

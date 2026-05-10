@@ -26,11 +26,16 @@ if (Test-Path dist) { Remove-Item dist -Recurse -Force }
 if (Test-Path release) { Remove-Item release -Recurse -Force }
 
 Write-Host "[4/5] Building Blaster.exe..."
+if (-not (Test-Path "blaster\icon.ico")) {
+    throw "Build failed: blaster\icon.ico not found."
+}
 & $Python -m PyInstaller `
     --noconfirm `
     --clean `
     --windowed `
     --onefile `
+    --icon "blaster\icon.ico" `
+    --add-data "blaster\icon.png;blaster" `
     --name Blaster `
     run_game.py | Out-Host
 

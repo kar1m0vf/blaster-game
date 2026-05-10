@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 1.1.1 - 2026-05-10
+
+### Added
+- Added a custom Blaster app icon for the Windows executable and game window.
+
 ## 1.1.0 - 2026-05-10
 
 ### Changed

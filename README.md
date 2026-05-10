@@ -19,6 +19,7 @@ Arcade 2D shooter built with Pygame.
 - Death replay (5 seconds, skippable)
 - Local high scores stored in the user's app data directory
 - Persistent user settings with migration from older `data/*.json` files
+- Custom Windows executable and window icon
 
 ## Screenshots
 
@@ -90,7 +91,7 @@ It will:
 
 1. install build dependencies
 2. run tests
-3. build `Blaster.exe` with PyInstaller
+3. build `Blaster.exe` with PyInstaller and embed the app icon
 4. assemble release files
 5. create `release/Blaster-windows-x64.zip`
 

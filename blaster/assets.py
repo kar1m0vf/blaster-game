@@ -59,6 +59,44 @@ def generate_explosion_sound(path, duration=0.35, sample_rate=44100):
 
 _loaded_sounds = None
 
+
+def _asset_path(dest_dir, filename):
+    base = dest_dir or os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, filename)
+
+
+def _build_fallback_window_icon():
+    try:
+        import pygame
+        surf = pygame.Surface((64, 64), pygame.SRCALPHA)
+        pygame.draw.rect(surf, (7, 15, 34), surf.get_rect(), border_radius=14)
+        pygame.draw.rect(surf, (112, 214, 255), surf.get_rect().inflate(-4, -4), 3, border_radius=12)
+        pygame.draw.circle(surf, (255, 196, 88), (32, 34), 15, 3)
+        pygame.draw.polygon(surf, (50, 154, 238), [(32, 5), (48, 42), (32, 54), (16, 42)])
+        pygame.draw.polygon(surf, (202, 244, 255), [(32, 5), (48, 42), (32, 54), (16, 42)], 2)
+        pygame.draw.polygon(surf, (28, 92, 168), [(26, 28), (5, 42), (23, 52)])
+        pygame.draw.polygon(surf, (28, 92, 168), [(38, 28), (59, 42), (41, 52)])
+        pygame.draw.polygon(surf, (255, 136, 72), [(25, 50), (31, 50), (28, 63)])
+        pygame.draw.polygon(surf, (255, 136, 72), [(33, 50), (39, 50), (36, 63)])
+        return surf
+    except Exception:
+        return None
+
+
+def load_window_icon(dest_dir=None):
+    try:
+        import pygame
+        icon_path = _asset_path(dest_dir, "icon.png")
+        if os.path.exists(icon_path):
+            icon = pygame.image.load(icon_path).convert_alpha()
+            if icon.get_width() > 256 or icon.get_height() > 256:
+                icon = pygame.transform.smoothscale(icon, (64, 64))
+            return icon
+    except Exception:
+        pass
+    return _build_fallback_window_icon()
+
+
 def ensure_sounds(dest_dir=None):
     base = dest_dir or os.path.dirname(os.path.abspath(__file__))
     shot_path = os.path.join(base, 'blaster_shot.wav')
