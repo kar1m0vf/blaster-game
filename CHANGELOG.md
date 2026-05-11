@@ -15,6 +15,7 @@
 - Combat collision handling now lives in `blaster/combat.py`, reducing the size and responsibility of `blaster/main.py`.
 - README media previews were refreshed to match the current menu, combat HUD, ship frames, and boss telegraph systems.
 - README screenshots are now PNG captures from the actual Pygame renderer and can be regenerated with `tools/capture_readme_screenshots.py`.
+- Windows release packaging now disables UPX, supports optional Authenticode signing, includes SHA256 checksums, and documents SmartScreen/Defender distribution expectations.
 - In-game rendering was tuned toward the refreshed preview style with brighter space backdrops, stronger HUD glass panels, richer combat particles, and a more dramatic boss telegraph.
 - Background composition was refined to remove the bright center glow, keep nebula detail near the edges, and lower the perspective grid for better gameplay readability.
 - The player ship is now slightly larger and sits higher above the bottom edge for better visibility.

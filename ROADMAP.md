@@ -18,3 +18,5 @@
 - Real sprite pack and SFX pass
 - Polished onboarding/tutorial wave
 - Release pipeline with prebuilt Windows binary
+- Code-signed Windows releases or Microsoft Store distribution to reduce SmartScreen/Defender blocks
+- False-positive submission checklist for Microsoft Security Intelligence when Defender incorrectly flags a clean build

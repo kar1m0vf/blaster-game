@@ -46,6 +46,8 @@ python tools\capture_readme_screenshots.py
 
 Use the **Releases** page and download the latest `Blaster-windows-x64.zip`.
 
+Windows Defender SmartScreen can warn on or block unsigned, low-reputation builds. Public releases should be code-signed or distributed through Microsoft Store. See `docs/WINDOWS_DISTRIBUTION.md`.
+
 Inside archive:
 
 - `Blaster.exe`
@@ -53,6 +55,8 @@ Inside archive:
 - `LICENSE`
 - `COPYRIGHT`
 - `CHANGELOG.md`
+- `WINDOWS_DISTRIBUTION.md`
+- `SHA256SUMS.txt`
 
 ## Run From Source
 
@@ -92,8 +96,10 @@ It will:
 1. install build dependencies
 2. run tests
 3. build `Blaster.exe` with PyInstaller and embed the app icon
-4. assemble release files
-5. create `release/Blaster-windows-x64.zip`
+4. optionally sign `Blaster.exe` when signing environment variables are configured
+5. assemble release files
+6. create `release/Blaster-windows-x64.zip`
+7. write SHA256 checksums
 
 ## Notes
 
